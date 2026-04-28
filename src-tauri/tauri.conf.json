@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bun run start",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "vite build",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
   "app": {
