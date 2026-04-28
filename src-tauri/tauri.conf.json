@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "loopybrainie.visualised-intelligent-voice-interaction-control-system",
   "build": {
-    "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeDevCommand": "bun run start",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "vite build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -30,6 +30,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../python_engine": "python_engine"
+    }
   }
 }
+

@@ -1,25 +1,28 @@
 {
   "name": "visualised-intelligent-voice-interaction-control-system",
   "version": "0.1.0",
-  "description": "",
+  "description": "可视化智能语音交互控制系统",
   "type": "module",
   "scripts": {
     "start": "vite",
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "uv run --project python_engine tauri dev",
+    "build": "uv run --project python_engine tauri build",
     "serve": "vite preview",
     "tauri": "tauri"
   },
   "license": "MIT",
   "dependencies": {
-    "solid-js": "^1.9.3",
+    "solid-js": "^1.9.12",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
-    "typescript": "~5.6.2",
-    "vite": "^6.0.3",
-    "vite-plugin-solid": "^2.11.0",
-    "@tauri-apps/cli": "^2"
+    "typescript": "~6.0.3",
+    "vite": "^8.0.10",
+    "vite-plugin-solid": "^2.11.12",
+    "@tauri-apps/cli": "^2",
+    "tailwindcss": "^4.2.4",
+    "postcss": "^8.5.12",
+    "autoprefixer": "^10.5.0"
   }
 }
