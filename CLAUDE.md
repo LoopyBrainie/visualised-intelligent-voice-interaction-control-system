@@ -18,8 +18,8 @@ bunx tauri dev     # 开发模式运行完整应用
 bunx tauri build   # 生产构建
 
 # Rust 后端
-cd src-tauri && cargo build   # 编译 Rust
-cd src-tauri && cargo check   # 类型检查
+cd src-tauri && uv run --project ../python_engine cargo build   # 编译 Rust
+cd src-tauri && uv run --project ../python_engine cargo check   # 类型检查
 ```
 
 ## PyO3 兼容性说明
