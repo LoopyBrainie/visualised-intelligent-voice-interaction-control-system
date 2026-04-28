@@ -5,13 +5,17 @@
 
 mod logger;
 mod py_engine;
+mod state;
+mod control;
 
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use anyhow::Result;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use logger::{log_error, log_info, log_warn};
+use state::GlobalState;
+use control::{parse_command, execute_command};
 
 /// 核心逻辑：寻找并同步 uv 环境，返回 Python 解释器路径
 fn resolve_python_runtime() -> anyhow::Result<PathBuf> {
@@ -213,6 +217,39 @@ fn ensure_python_env() -> Result<()> {
     Ok(())
 }
 
+// Tauri 事件名称常量
+const EMIT_DEVICE_UPDATE: &str = "device-state-changed";
+
+/// 处理语音指令的 Tauri command
+#[tauri::command]
+fn handle_voice_command(cmd: &str, state: tauri::State<GlobalState>, app_handle: tauri::AppHandle) -> Result<String, String> {
+    // 1. 解析指令
+    let parsed = parse_command(cmd).map_err(|e| format!("{:?}", e))?;
+
+    // 2. 执行指令（直接操作全局状态）
+    execute_command(&parsed, &state).map_err(|e| format!("{:?}", e))?;
+
+    // 3. 获取更新后的状态并广播到前端
+    let device_state = {
+        let guard = state.read().map_err(|e| format!("Lock error: {}", e))?;
+        guard.clone()
+    };
+
+    // 4. 广播状态更新到前端
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.emit(EMIT_DEVICE_UPDATE, &device_state);
+    }
+
+    Ok(format!("{:?}", parsed))
+}
+
+/// 获取当前设备状态
+#[tauri::command]
+fn get_device_state(state: tauri::State<GlobalState>) -> Result<String, String> {
+    let guard = state.read().map_err(|e| format!("Lock error: {}", e))?;
+    serde_json::to_string(&*guard).map_err(|e| format!("Serialization error: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // A. 最高优先级: 在所有 PyO3 调用前注入环境变量
@@ -221,11 +258,15 @@ pub fn run() {
         // 不退出，让应用继续启动，后续会通过事件通知前端
     }
 
+    // B. 创建全局状态
+    let global_state = GlobalState::new();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(global_state)  // 注册全局状态
+        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state])
         .setup(|app| {
-            // B. 初始化日志系统
+            // C. 初始化日志系统
             if let Err(e) = logger::init_logger(app.handle().clone()) {
                 eprintln!("Failed to init logger: {}", e);
             }
@@ -233,7 +274,7 @@ pub fn run() {
             log_warn("这是一条警告测试日志");
             log_error("这是一条错误测试日志");
 
-            // C. 初始化 Python 环境 (auto-initialize 自动处理)
+            // D. 初始化 Python 环境 (auto-initialize 自动处理)
             // 此时 PyO3 会读取上面 set_var 注入的路径
             match py_engine::init_python() {
                 Ok(_) => {
