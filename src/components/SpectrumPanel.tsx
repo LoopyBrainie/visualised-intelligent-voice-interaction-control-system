@@ -47,9 +47,7 @@ export function SpectrumPanel() {
               class="w-1.5 rounded-t transition-all duration-75"
               style={{
                 height: `${height}%`,
-                background: isActive()
-                  ? `linear-gradient(to top, #0071e3 ${100 - (i % 4) * 20}%, #2997ff)`
-                  : '#3a3a3c',
+                background: isActive() ? '#0071e3' : '#3a3a3c',
               }}
             />
           );

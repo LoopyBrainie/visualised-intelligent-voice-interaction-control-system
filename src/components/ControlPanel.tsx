@@ -1,12 +1,28 @@
 import { Component, createSignal } from 'solid-js';
+import { invoke } from '@tauri-apps/api/core';
 
 // 控制按钮区组件
 export function ControlPanel() {
   const [mode, setMode] = createSignal<'voice' | 'gesture'>('voice');
   const [isRunning, setIsRunning] = createSignal(false);
 
-  const handleStart = () => setIsRunning(true);
-  const handleStop = () => setIsRunning(false);
+  const handleStart = async () => {
+    try {
+      await invoke('start_voice_capture');
+      setIsRunning(true);
+    } catch (e) {
+      console.error('启动失败:', e);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      await invoke('stop_voice_capture');
+      setIsRunning(false);
+    } catch (e) {
+      console.error('停止失败:', e);
+    }
+  };
 
   return (
     <div class="flex items-center gap-6">

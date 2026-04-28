@@ -33,6 +33,12 @@ export default {
         'button-active': '#ededf2',
         'button-default-light': '#fafafc',
 
+        // Device Status Colors
+        'device-light': '#fbbf24',
+        'device-fan': '#34d399',
+        'device-ac': '#60a5fa',
+        'device-curtain': '#a78bfa',
+
         // Log Level Colors
         'log-error': '#ff3b30',
         'log-warn': '#ff9500',
