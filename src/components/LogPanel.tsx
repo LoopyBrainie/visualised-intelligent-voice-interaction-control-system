@@ -7,18 +7,11 @@ interface LogEntry {
   message: string;
 }
 
-const levelColors: Record<string, string> = {
-  ERROR: 'text-log-error',
-  WARN: 'text-log-warn',
-  INFO: 'text-log-info',
-  DEBUG: 'text-log-debug',
-};
-
-const levelBgColors: Record<string, string> = {
-  ERROR: 'bg-log-error/10',
-  WARN: 'bg-log-warn/10',
-  INFO: 'bg-log-info/10',
-  DEBUG: 'bg-log-debug/10',
+const levelConfig: Record<string, { color: string; bg: string; label: string }> = {
+  ERROR: { color: 'text-log-error', bg: 'bg-log-error/10', label: '错误' },
+  WARN: { color: 'text-log-warn', bg: 'bg-log-warn/10', label: '警告' },
+  INFO: { color: 'text-log-info', bg: 'bg-log-info/10', label: '信息' },
+  DEBUG: { color: 'text-log-debug', bg: 'bg-log-debug/10', label: '调试' },
 };
 
 export function LogPanel() {
@@ -43,10 +36,9 @@ export function LogPanel() {
     ];
     setLogs(testLogs);
 
-    // 监听 Rust 后端发送的日志事件
+    // 监听 Rust 后端发送的日志事件 - 保持原有逻辑
     const unlistenFn = await listen<LogEntry>('log_event', (event) => {
       setLogs((prev) => [...prev, event.payload]);
-      // 自动滚动到最新日志
       setTimeout(scrollToBottom, 10);
     });
     currentUnlisten = unlistenFn;
@@ -59,18 +51,27 @@ export function LogPanel() {
   });
 
   return (
-    <div class="h-full flex flex-col bg-dark-surface-1/80 backdrop-blur-glass rounded-apple-md border border-white/5">
+    <div class="h-full flex flex-col bg-dark-surface-1/80 backdrop-blur-[30px] saturate-[140%] rounded-apple-md border border-white/[0.05]">
       {/* 标题栏 */}
-      <div class="flex items-center justify-between px-4 py-3 border-b border-white/5">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
         <div class="flex items-center gap-2">
           <div class="w-2 h-2 rounded-full bg-apple-blue animate-pulse" />
-          <h3 class="text-sm font-semibold text-apple-text-primary font-sf-pro">
+          <h3 class="text-sm font-semibold text-apple-text-primary tracking-tight">
             实时日志
           </h3>
         </div>
-        <span class="text-xs text-apple-text-tertiary font-mono">
-          {logs().length} 条
-        </span>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-apple-text-tertiary font-mono">
+            {logs().length} 条
+          </span>
+          {/* 清空按钮 */}
+          <button
+            onClick={() => setLogs([])}
+            class="text-xs text-apple-text-tertiary hover:text-apple-text-secondary transition-colors"
+          >
+            清空
+          </button>
+        </div>
       </div>
 
       {/* 日志列表 */}
@@ -79,32 +80,39 @@ export function LogPanel() {
         class="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-xs"
       >
         <For each={logs()}>
-          {(entry) => (
-            <div class="flex items-start gap-3 py-1 px-2 rounded hover:bg-white/5 transition-colors">
-              {/* 时间戳 */}
-              <span class="text-apple-text-tertiary shrink-0">
-                {entry.timestamp}
-              </span>
+          {(entry) => {
+            const config = levelConfig[entry.level];
+            return (
+              <div class="flex items-start gap-3 py-1.5 px-3 rounded-apple-sm hover:bg-white/[0.02] transition-colors">
+                {/* 时间戳 */}
+                <span class="text-apple-text-tertiary shrink-0 w-24">
+                  {entry.timestamp}
+                </span>
 
-              {/* 级别标签 */}
-              <span
-                class={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0 ${levelColors[entry.level]} ${levelBgColors[entry.level]}`}
-              >
-                {entry.level}
-              </span>
+                {/* 级别标签 */}
+                <span class={`
+                  px-2 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0
+                  ${config.color} ${config.bg}
+                `}>
+                  {config.label}
+                </span>
 
-              {/* 消息 */}
-              <span class="text-apple-text-secondary flex-1 break-all">
-                {entry.message}
-              </span>
-            </div>
-          )}
+                {/* 消息 */}
+                <span class="text-apple-text-secondary flex-1 break-all leading-relaxed">
+                  {entry.message}
+                </span>
+              </div>
+            );
+          }}
         </For>
 
         {/* 空状态 */}
         {logs().length === 0 && (
-          <div class="flex items-center justify-center h-full text-apple-text-tertiary">
-            <span>等待日志输入...</span>
+          <div class="flex flex-col items-center justify-center h-full text-apple-text-tertiary">
+            <svg class="w-8 h-8 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span class="text-xs">等待日志输入...</span>
           </div>
         )}
       </div>
