@@ -264,7 +264,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(global_state)  // 注册全局状态
-        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state])
+        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state, start_voice_capture, stop_voice_capture])
         .setup(|app| {
             // C. 初始化日志系统
             if let Err(e) = logger::init_logger(app.handle().clone()) {
@@ -298,4 +298,20 @@ pub fn run() {
 fn greet(name: &str) -> String {
     log_info(&format!("收到问候请求: {}", name));
     format!("Hello, {}! 待实现完整功能", name)
+}
+
+/// 开始语音采集
+#[tauri::command]
+fn start_voice_capture() -> Result<String, String> {
+    log_info("语音采集开始");
+    // TODO: 后续对接 voice.rs 中的 cpal 录音逻辑
+    Ok("started".to_string())
+}
+
+/// 停止语音采集
+#[tauri::command]
+fn stop_voice_capture() -> Result<String, String> {
+    log_info("语音采集停止");
+    // TODO: 后续对接 voice.rs 中的 cpal 停止逻辑
+    Ok("stopped".to_string())
 }

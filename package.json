@@ -6,6 +6,7 @@
   "scripts": {
     "start": "vite",
     "dev": "uv run --project python_engine tauri dev",
+    "build:frontend": "vite build",
     "build": "uv run --project python_engine tauri build",
     "serve": "vite preview",
     "tauri": "tauri"
