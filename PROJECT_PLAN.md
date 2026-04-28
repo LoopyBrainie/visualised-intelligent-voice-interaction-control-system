@@ -180,6 +180,7 @@
 | 4.5 | 实现 FFT 频谱计算 | 频谱数据输出 | SpectrumPanel显示 |
 | 4.6 | 对接在线 ASR 引擎 | httpx 异步请求 | 音频→文本转换 |
 | 4.7 | 实现异常捕获 | 超时/网络异常处理 | 识别失败时降级 |
+| 4.8 | **集成 rapidfuzz 模糊匹配** | py_fuzzy_match 实现 | 容错率 > 80% |
 
 #### 4.4.2 数字信号处理算法说明
 
@@ -225,8 +226,9 @@ def verify_voiceprint(mfcc1: np.ndarray, mfcc2: np.ndarray, threshold: float = 1
 | 4.5 | 实现 FFT 频谱计算 | 频谱数据输出 | SpectrumPanel显示 |
 | 4.6 | 对接在线 ASR 引擎 | httpx 异步请求 | 音频→文本转换 |
 | 4.7 | 实现异常捕获 | 超时/网络异常处理 | 识别失败时降级 |
+| 4.8 | 集成 rapidfuzz 模糊匹配 | py_fuzzy_match | 容错率 > 80% |
 
-#### 4.4.2 验收标准
+#### 4.4.4 验收标准
 - [ ] 麦克风采集正常，采样率 16kHz
 - [ ] 后台录音时GUI不卡顿（帧率 > 30fps）
 - [ ] 音频数据通过PyO3传递到Python（延迟 < 10ms）
@@ -234,8 +236,9 @@ def verify_voiceprint(mfcc1: np.ndarray, mfcc2: np.ndarray, threshold: float = 1
 - [ ] 语音指令 "打开灯" → 界面灯光亮起
 - [ ] 识别超时 > 5s 时显示 "识别超时" 日志
 - [ ] 网络异常时显示错误日志并继续运行
+- [ ] 模糊匹配容错率 > 80%（"打开登" → Light）
 
-#### 4.4.3 边界定义
+#### 4.4.5 边界定义
 ```
 入界: 音频采集、PyO3绑定、Python DSP、语音识别
 出界: 手势识别、GUI渲染、指令执行
