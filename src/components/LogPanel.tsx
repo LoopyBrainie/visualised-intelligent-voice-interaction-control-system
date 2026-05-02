@@ -5,6 +5,8 @@ interface LogEntry {
   timestamp: string;
   level: 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
   message: string;
+  trace_id?: string;
+  source?: string;
 }
 
 const levelConfig: Record<string, { color: string; bg: string; label: string }> = {
@@ -26,13 +28,13 @@ export function LogPanel() {
   };
 
   onMount(async () => {
-    // 预设测试日志
+    // 预设测试日志（带 trace_id）
     const testLogs: LogEntry[] = [
-      { timestamp: '00:00:00.000', level: 'INFO', message: '系统启动中...' },
-      { timestamp: '00:00:00.100', level: 'DEBUG', message: '加载配置文件 ~/.config/app.json' },
-      { timestamp: '00:00:00.200', level: 'INFO', message: '日志系统初始化完成' },
-      { timestamp: '00:00:00.300', level: 'WARN', message: 'Python 环境未检测到，正在尝试初始化...' },
-      { timestamp: '00:00:00.500', level: 'INFO', message: 'GUI 组件挂载完成' },
+      { timestamp: '00:00:00.000', level: 'INFO', message: '系统启动中...', source: 'rust' },
+      { timestamp: '00:00:00.100', level: 'DEBUG', message: '加载配置文件 ~/.config/app.json', source: 'rust' },
+      { timestamp: '00:00:00.200', level: 'INFO', message: '日志系统初始化完成', trace_id: 'a1b2c3d4', source: 'rust' },
+      { timestamp: '00:00:00.300', level: 'WARN', message: 'Python 环境未检测到，正在尝试初始化...', trace_id: 'a1b2c3d4', source: 'daemon' },
+      { timestamp: '00:00:00.500', level: 'INFO', message: 'GUI 组件挂载完成', source: 'rust' },
     ];
     setLogs(testLogs);
 
@@ -51,7 +53,7 @@ export function LogPanel() {
   });
 
   return (
-    <div class="h-full flex flex-col bg-dark-surface-1/80 backdrop-blur-[30px] saturate-[140%] rounded-apple-md border border-white/[0.05]">
+    <div class="h-full flex flex-col">
       {/* 标题栏 */}
       <div class="flex items-center justify-between px-4 py-3 border-b border-white/[0.05]">
         <div class="flex items-center gap-2">
@@ -96,6 +98,20 @@ export function LogPanel() {
                 `}>
                   {config.label}
                 </span>
+
+                {/* 来源标签（如果有） */}
+                {entry.source && (
+                  <span class="px-1.5 py-0.5 rounded text-[9px] bg-apple-purple/20 text-apple-purple shrink-0">
+                    {entry.source}
+                  </span>
+                )}
+
+                {/* trace_id（如果有） */}
+                {entry.trace_id && (
+                  <span class="px-1.5 py-0.5 rounded text-[9px] bg-apple-cyan/20 text-apple-cyan shrink-0 font-mono">
+                    #{entry.trace_id}
+                  </span>
+                )}
 
                 {/* 消息 */}
                 <span class="text-apple-text-secondary flex-1 break-all leading-relaxed">

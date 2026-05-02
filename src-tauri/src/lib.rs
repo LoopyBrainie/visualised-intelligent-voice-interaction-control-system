@@ -7,15 +7,20 @@ mod logger;
 mod py_engine;
 mod state;
 mod control;
+mod voice;
+mod daemon_manager;
 
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
 use anyhow::Result;
 use tauri::{Emitter, Manager};
 use logger::{log_error, log_info, log_warn};
-use state::GlobalState;
+use state::{GlobalState, DaemonState};
 use control::{parse_command, execute_command};
+// voice::VoiceManager is imported via voice module
 
 /// 核心逻辑：寻找并同步 uv 环境，返回 Python 解释器路径
 fn resolve_python_runtime() -> anyhow::Result<PathBuf> {
@@ -220,13 +225,25 @@ fn ensure_python_env() -> Result<()> {
 // Tauri 事件名称常量
 const EMIT_DEVICE_UPDATE: &str = "device-state-changed";
 
+// VoiceManager 生命周期管理（模块级别）
+static VOICE_MANAGER: Lazy<Mutex<Option<voice::VoiceManager>>> = Lazy::new(|| Mutex::new(None));
+
 /// 处理语音指令的 Tauri command
 #[tauri::command]
-fn handle_voice_command(cmd: &str, state: tauri::State<GlobalState>, app_handle: tauri::AppHandle) -> Result<String, String> {
+fn handle_voice_command(cmd: &str, room: Option<&str>, state: tauri::State<GlobalState>, app_handle: tauri::AppHandle) -> Result<String, String> {
     // 1. 解析指令
-    let parsed = parse_command(cmd).map_err(|e| format!("{:?}", e))?;
+    let mut parsed = parse_command(cmd).map_err(|e| format!("{:?}", e))?;
 
-    // 2. 执行指令（直接操作全局状态）
+    // 2. 如果前端指定了房间，覆盖解析出的房间
+    if let Some(room_str) = room {
+        parsed.room = match room_str {
+            "bedroom" => control::TargetRoom::Bedroom,
+            "living_room" | "livingroom" => control::TargetRoom::LivingRoom,
+            _ => parsed.room,
+        };
+    }
+
+    // 3. 执行指令（直接操作全局状态）
     execute_command(&parsed, &state).map_err(|e| format!("{:?}", e))?;
 
     // 3. 获取更新后的状态并广播到前端
@@ -264,7 +281,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(global_state)  // 注册全局状态
-        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state, start_voice_capture, stop_voice_capture])
+        .manage(DaemonState::new())  // 注册 Daemon 进程管理
+        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state, start_voice_capture, stop_voice_capture, list_audio_devices, set_language_mode])
         .setup(|app| {
             // C. 初始化日志系统
             if let Err(e) = logger::init_logger(app.handle().clone()) {
@@ -274,7 +292,23 @@ pub fn run() {
             log_warn("这是一条警告测试日志");
             log_error("这是一条错误测试日志");
 
-            // D. 初始化 Python 环境 (auto-initialize 自动处理)
+            // D. 启动 Python Daemon
+            let daemon_state = app.state::<DaemonState>();
+            match daemon_state.manager.lock() {
+                Ok(mut manager) => {
+                    match manager.start() {
+                        Ok(_) => log_info("Python Daemon 启动成功"),
+                        Err(e) => {
+                            let err_msg = format!("Python Daemon 启动失败: {}", e);
+                            log_error(&err_msg);
+                            emit_env_error(app.handle(), &err_msg);
+                        }
+                    }
+                }
+                Err(e) => log_error(&format!("获取 DaemonState 锁失败: {}", e)),
+            }
+
+            // E. 初始化 Python 环境 (auto-initialize 自动处理)
             // 此时 PyO3 会读取上面 set_var 注入的路径
             match py_engine::init_python() {
                 Ok(_) => {
@@ -300,18 +334,89 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! 待实现完整功能", name)
 }
 
-/// 开始语音采集
+/// 开始语音采集（同时启用录制模式）
 #[tauri::command]
-fn start_voice_capture() -> Result<String, String> {
+fn start_voice_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalState>) -> Result<String, String> {
     log_info("语音采集开始");
-    // TODO: 后续对接 voice.rs 中的 cpal 录音逻辑
-    Ok("started".to_string())
+
+    let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+    if let Some(ref manager) = *guard {
+        // 已存在管理器，直接启用录制模式
+        manager.start_recording();
+        log_info("VoiceManager 复用，录制模式已启用");
+        Ok("already_running".to_string())
+    } else {
+        drop(guard); // 释放锁，避免 clone 时借用冲突
+        let state_clone = (*state).clone();
+        match voice::VoiceManager::start(app_handle, state_clone) {
+            Ok(manager) => {
+                manager.start_recording();
+                let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+                *guard = Some(manager);
+                log_info("VoiceManager 启动成功，录制模式已启用");
+                Ok("started".to_string())
+            }
+            Err(e) => {
+                log_error(&format!("VoiceManager 启动失败: {}", e));
+                Err(e)
+            }
+        }
+    }
 }
 
-/// 停止语音采集
+/// 停止语音采集（同时停止录制并发送完整音频到 VLM）
 #[tauri::command]
 fn stop_voice_capture() -> Result<String, String> {
     log_info("语音采集停止");
-    // TODO: 后续对接 voice.rs 中的 cpal 停止逻辑
-    Ok("stopped".to_string())
+
+    let guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+    if let Some(ref manager) = *guard {
+        // 停止录制并发送完整音频到 VLM
+        manager.stop_recording_and_send();
+        log_info("录制停止，VLM 请求已发送");
+        Ok("stopped".to_string())
+    } else {
+        Ok("not_running".to_string())
+    }
+}
+
+/// 列出可用麦克风设备
+#[tauri::command]
+fn list_audio_devices() -> Result<Vec<voice::MicrophoneDevice>, String> {
+    Ok(voice::list_devices())
+}
+
+/// 设置语言模式
+/// enabled=true: 语言模式（开启 FFT 和音频采集）
+/// enabled=false: 手势模式（暂停 FFT 和音频流以节省功耗）
+/// 注意：如果 VoiceManager 未运行，在语言模式下会自动启动
+#[tauri::command]
+fn set_language_mode(
+    enabled: bool,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<GlobalState>,
+) -> Result<(), String> {
+    let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+
+    // 如果语言模式启用但 VoiceManager 未运行，自动启动它
+    if enabled && guard.is_none() {
+        let state_clone = (*state).clone();
+        match voice::VoiceManager::start(app_handle, state_clone) {
+            Ok(manager) => {
+                // 语言模式默认开启
+                manager.set_language_mode(true);
+                *guard = Some(manager);
+                log_info("语言模式启动: VoiceManager 已自动启动并设为语言模式");
+            }
+            Err(e) => {
+                log_error(&format!("自动启动 VoiceManager 失败: {}", e));
+                return Err(format!("自动启动失败: {}", e));
+            }
+        }
+    } else if let Some(ref manager) = *guard {
+        manager.set_language_mode(enabled);
+        log_info(&format!("语言模式已设置为: {}", if enabled { "开启" } else { "关闭" }));
+    }
+
+    Ok(())
 }
