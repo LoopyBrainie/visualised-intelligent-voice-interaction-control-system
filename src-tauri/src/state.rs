@@ -1,7 +1,9 @@
 // state.rs - 设备状态模块
 // 职责: 设备状态定义、序列化/反序列化、线程安全封装
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
+
+use crate::daemon_manager::DaemonManager;
 
 // ============================================================
 // 空调模式枚举
@@ -84,23 +86,59 @@ impl Default for FanState {
 }
 
 // ============================================================
-// 设备状态组合结构
+// 房间设备状态结构
 // ============================================================
 
-/// 设备状态组合结构（便于 serde 序列化）
+/// 单个房间内的设备状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceState {
+pub struct RoomDeviceState {
     pub light: LightState,
     pub air_condition: AirConditionState,
     pub fan: FanState,
+    #[serde(default)]
+    pub curtain: CurtainState,
 }
 
-impl Default for DeviceState {
+impl Default for RoomDeviceState {
     fn default() -> Self {
         Self {
             light: LightState::default(),
             air_condition: AirConditionState::default(),
             fan: FanState::default(),
+            curtain: CurtainState::default(),
+        }
+    }
+}
+
+/// 窗帘状态（新增）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurtainState {
+    pub is_open: bool,
+    #[serde(default)]
+    pub position: Option<u8>, // 0-100 预留
+}
+
+impl Default for CurtainState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            position: None,
+        }
+    }
+}
+
+/// 设备状态组合结构（按房间存储）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceState {
+    pub living_room: RoomDeviceState,
+    pub bedroom: RoomDeviceState,
+}
+
+impl Default for DeviceState {
+    fn default() -> Self {
+        Self {
+            living_room: RoomDeviceState::default(),
+            bedroom: RoomDeviceState::default(),
         }
     }
 }
@@ -173,9 +211,9 @@ mod tests {
     #[test]
     fn test_device_state_default() {
         let state = DeviceState::default();
-        assert!(!state.light.is_on);
-        assert!(!state.air_condition.is_on);
-        assert!(!state.fan.is_on);
+        assert!(!state.living_room.light.is_on);
+        assert!(!state.living_room.air_condition.is_on);
+        assert!(!state.living_room.fan.is_on);
     }
 
     #[test]
@@ -183,9 +221,9 @@ mod tests {
         let state = DeviceState::default();
         let json = serde_json::to_string(&state).expect("序列化失败");
         let back: DeviceState = serde_json::from_str(&json).expect("反序列化失败");
-        assert_eq!(state.light.is_on, back.light.is_on);
-        assert_eq!(state.light.brightness, back.light.brightness);
-        assert_eq!(state.air_condition.temperature, back.air_condition.temperature);
+        assert_eq!(state.living_room.light.is_on, back.living_room.light.is_on);
+        assert_eq!(state.living_room.light.brightness, back.living_room.light.brightness);
+        assert_eq!(state.living_room.air_condition.temperature, back.living_room.air_condition.temperature);
     }
 
     #[test]
@@ -193,16 +231,40 @@ mod tests {
         let global = GlobalState::new();
         // 验证初始状态
         let guard = global.read().expect("获取读锁失败");
-        assert!(!guard.light.is_on);
+        assert!(!guard.living_room.light.is_on);
         drop(guard);
 
         // 验证写锁可用
         let mut guard = global.write().expect("获取写锁失败");
-        guard.light.is_on = true;
+        guard.living_room.light.is_on = true;
         drop(guard);
 
         // 验证更新后状态
         let guard = global.read().expect("获取读锁失败");
-        assert!(guard.light.is_on);
+        assert!(guard.living_room.light.is_on);
+    }
+}
+
+// ============================================================
+// Daemon 进程状态管理 (独立管理，应用退出时清理)
+// ============================================================
+
+/// Daemon 进程状态（用于 Tauri 全局状态管理）
+/// 确保 Python Daemon 在应用退出时正确清理，防止孤儿进程
+pub struct DaemonState {
+    pub manager: Mutex<DaemonManager>,
+}
+
+impl DaemonState {
+    pub fn new() -> Self {
+        Self {
+            manager: Mutex::new(DaemonManager::new()),
+        }
+    }
+}
+
+impl Default for DaemonState {
+    fn default() -> Self {
+        Self::new()
     }
 }
