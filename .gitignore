@@ -1,2 +1,11 @@
 node_modules
 dist
+.claude
+.ruff_cache
+.sparv
+.vscode
+.playwright-cli
+python_engine/vlm_config.toml
+python_engine/__pycache__/
+python_engine/debug_audio/
+.liquid-glass
