@@ -1,34 +1,47 @@
-import { Component } from 'solid-js';
-import { deviceState, setDeviceState } from '../../store/deviceStore';
+import { invoke } from '@tauri-apps/api/core';
+import { RoomId, RoomDeviceState } from '../../store/deviceStore';
+import { LiquidGlassToggle } from '../ui/LiquidGlassToggle';
 
-export function Fan() {
-  const toggleFan = () => {
-    setDeviceState(prev => ({ ...prev, fan: !prev.fan }));
+interface FanProps {
+  roomId: RoomId;
+  roomState: RoomDeviceState;
+}
+
+export function Fan(props: FanProps) {
+  const toggleFan = async () => {
+    const newState = !props.roomState.fan.is_on;
+    try {
+      await invoke('handle_voice_command', {
+        cmd: newState ? '开风扇' : '关风扇',
+        room: props.roomId,
+      });
+    } catch (e) {
+      console.error('Failed to toggle fan:', e);
+    }
   };
 
-  const setSpeed = (value: number) => {
-    setDeviceState(prev => ({ ...prev, fan_speed: value }));
+  const setSpeed = async (value: number) => {
+    try {
+      await invoke('handle_voice_command', {
+        cmd: `风扇${value}档`,
+        room: props.roomId,
+      });
+    } catch (e) {
+      console.error('Failed to set fan speed:', e);
+    }
   };
 
   return (
-    <div class="flex items-center justify-between">
-      {/* 开关 */}
-      <div class="flex items-center gap-3">
-        <span class="text-xs text-apple-text-secondary">风扇</span>
-        <button
-          onClick={toggleFan}
-          class={`
-            relative w-11 h-6 rounded-full transition-colors duration-200
-            ${deviceState().fan ? 'bg-apple-blue' : 'bg-dark-surface-4'}
-          `}
-        >
-          <span
-            class={`
-              absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200
-              ${deviceState().fan ? 'left-[22px]' : 'left-0.5'}
-            `}
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between">
+        {/* 开关 */}
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-secondary">风扇</span>
+          <LiquidGlassToggle
+            checked={props.roomState.fan.is_on}
+            onChange={toggleFan}
           />
-        </button>
+        </div>
       </div>
 
       {/* 速度档位 */}
@@ -36,12 +49,15 @@ export function Fan() {
         {[1, 2, 3].map((speed) => (
           <button
             onClick={() => setSpeed(speed)}
-            class={`
-              w-8 h-8 rounded-apple-sm text-xs font-medium transition-colors duration-200
-              ${deviceState().fan_speed === speed
-                ? 'bg-apple-blue text-white'
-                : 'bg-dark-surface-4 text-apple-text-tertiary hover:text-apple-text-secondary'}
-            `}
+            class="w-8 h-8 rounded-sm text-xs font-semibold transition-all duration-200"
+            style={{
+              'background-color': props.roomState.fan.speed === speed
+                ? 'var(--color-accent)'
+                : 'rgba(0,0,0,0.05)',
+              'color': props.roomState.fan.speed === speed
+                ? 'white'
+                : 'var(--color-text-secondary)'
+            }}
           >
             {speed}
           </button>

@@ -1,12 +1,28 @@
-import { Component, createSignal } from 'solid-js';
+import { createSignal } from 'solid-js';
+import { invoke } from '@tauri-apps/api/core';
 
 // 控制按钮区组件
 export function ControlPanel() {
   const [mode, setMode] = createSignal<'voice' | 'gesture'>('voice');
   const [isRunning, setIsRunning] = createSignal(false);
 
-  const handleStart = () => setIsRunning(true);
-  const handleStop = () => setIsRunning(false);
+  const handleStart = async () => {
+    try {
+      await invoke('start_voice_capture');
+      setIsRunning(true);
+    } catch (e) {
+      console.error('启动失败:', e);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      await invoke('stop_voice_capture');
+      setIsRunning(false);
+    } catch (e) {
+      console.error('停止失败:', e);
+    }
+  };
 
   return (
     <div class="flex items-center gap-6">
@@ -17,27 +33,27 @@ export function ControlPanel() {
           onClick={handleStart}
           disabled={isRunning()}
           class={`
-            px-5 py-2 rounded-apple-md text-sm font-medium transition-all duration-200
-            focus:outline-none focus:ring-2 focus:ring-apple-blue focus:ring-offset-2 focus:ring-offset-morandi-dark
+            px-5 py-2 rounded-md text-sm font-medium transition-all duration-200
+            focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary
             ${isRunning()
-              ? 'bg-dark-surface-3 text-apple-text-tertiary cursor-not-allowed'
-              : 'bg-apple-blue text-white hover:bg-apple-blue-hover active:scale-[0.98]'
+              ? 'bg-surface-3 text-secondary cursor-not-allowed'
+              : 'bg-accent text-white hover:bg-accent/90 active:scale-[0.98]'
             }
           `}
         >
           开始
         </button>
 
-        {/* 停止按钮 - Secondary Dark */}
+        {/* 停止按钮 - Secondary */}
         <button
           onClick={handleStop}
           disabled={!isRunning()}
           class={`
-            px-5 py-2 rounded-apple-md text-sm font-medium transition-all duration-200
-            focus:outline-none focus:ring-2 focus:ring-apple-blue focus:ring-offset-2 focus:ring-offset-morandi-dark
+            px-5 py-2 rounded-md text-sm font-medium transition-all duration-200
+            focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary
             ${!isRunning()
-              ? 'bg-dark-surface-3 text-apple-text-tertiary cursor-not-allowed'
-              : 'bg-dark-surface-3 text-apple-text-primary hover:bg-dark-surface-4 active:scale-[0.98]'
+              ? 'bg-surface-3 text-secondary cursor-not-allowed'
+              : 'bg-surface-3 text-primary hover:bg-surface-4 active:scale-[0.98]'
             }
           `}
         >
@@ -47,15 +63,15 @@ export function ControlPanel() {
 
       {/* 模式切换 - Apple 风格 Pill Toggle */}
       <div class="flex items-center gap-3">
-        <span class="text-xs text-apple-text-tertiary">模式</span>
-        <div class="flex bg-dark-surface-3 rounded-full p-0.5">
+        <span class="text-xs text-secondary">模式</span>
+        <div class="flex bg-surface-3 rounded-full p-0.5">
           <button
             onClick={() => setMode('voice')}
             class={`
               px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-200
               ${mode() === 'voice'
-                ? 'bg-apple-blue text-white shadow-sm'
-                : 'text-apple-text-secondary hover:text-apple-text-primary'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-secondary hover:text-primary'
               }
             `}
           >
@@ -66,8 +82,8 @@ export function ControlPanel() {
             class={`
               px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-200
               ${mode() === 'gesture'
-                ? 'bg-apple-blue text-white shadow-sm'
-                : 'text-apple-text-secondary hover:text-apple-text-primary'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-secondary hover:text-primary'
               }
             `}
           >
@@ -78,11 +94,13 @@ export function ControlPanel() {
 
       {/* 状态指示 */}
       <div class="flex items-center gap-2">
-        <div class={`
-          w-2 h-2 rounded-full transition-colors duration-300
-          ${isRunning() ? 'bg-green-500 animate-pulse' : 'bg-apple-text-tertiary'}
-        `} />
-        <span class="text-xs text-apple-text-tertiary">
+        <div
+          class={`
+            w-2 h-2 rounded-full transition-colors duration-300
+            ${isRunning() ? 'bg-device-fan-on animate-pulse' : 'bg-surface-4'}
+          `}
+        />
+        <span class="text-xs text-secondary">
           {isRunning() ? '运行中' : '已停止'}
         </span>
       </div>

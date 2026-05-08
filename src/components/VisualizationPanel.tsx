@@ -1,135 +1,161 @@
-import { Component, createSignal, Show } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
+import { Portal } from 'solid-js/web';
+import { useFloating } from 'solid-floating-ui';
+import { offset, flip, shift, autoUpdate } from '@floating-ui/dom';
 import { Light } from './devices/Light';
 import { Fan } from './devices/Fan';
 import { AirCondition } from './devices/AirCondition';
-import { deviceState } from '../store/deviceStore';
+import { Curtain } from './devices/Curtain';
+import { RoomRow } from './rooms/RoomRow';
+import { RoomId, deviceState } from '../store/deviceStore';
+import { LiquidGlass } from './ui/LiquidGlass';
+import { useSnapshot } from './ui/SnapshotContext';
+
+type DeviceType = 'light' | 'fan' | 'ac' | 'curtain';
+
+interface Room {
+  id: RoomId;
+  name: string;
+  devices: DeviceType[];
+}
+
+// 房间-设备布局配置
+const roomsConfig: Room[] = [
+  {
+    id: 'living_room',
+    name: '客厅',
+    devices: ['light', 'ac', 'fan', 'curtain'],
+  },
+  {
+    id: 'bedroom',
+    name: '卧室',
+    devices: ['light', 'ac'],
+  },
+];
+
+// 激活设备信息（设备类型 + 房间）
+interface ActiveDeviceInfo {
+  type: DeviceType;
+  roomId: RoomId;
+}
 
 export function VisualizationPanel() {
-  const [activeDevice, setActiveDevice] = createSignal<'light' | 'fan' | 'ac' | null>(null);
+  const [activeDevice, setActiveDevice] = createSignal<ActiveDeviceInfo | null>(null);
+  const { notifyPanelOpen, notifyPanelClose } = useSnapshot();
+
+  // Floating UI references - 使用 roomId_type 作为 key
+  let floatingRef: HTMLDivElement | undefined;
+  let cardRefs: Map<string, HTMLButtonElement> = new Map();
+
+  const position = useFloating(
+    () => activeDevice() ? { getBoundingClientRect: () => getDeviceRect() } : null,
+    () => floatingRef,
+    {
+      whileElementsMounted: autoUpdate,
+      middleware: [offset(10), flip(), shift()],
+    }
+  );
+
+  // 获取当前激活设备卡片的 bounding rect
+  const getDeviceRect = () => {
+    const device = activeDevice();
+    if (!device) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+
+    const key = `${device.roomId}_${device.type}`;
+    const cardEl = cardRefs.get(key);
+    if (!cardEl) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+
+    const rect = cardEl.getBoundingClientRect();
+    return {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+    };
+  };
+
+  const handleDeviceClick = async (device: DeviceType, roomId: RoomId) => {
+    const current = activeDevice();
+    if (current && current.type === device && current.roomId === roomId) {
+      setActiveDevice(null);
+      notifyPanelClose();
+    } else {
+      // Capture snapshot BEFORE panel renders (prevents mirror-in-mirror)
+      await notifyPanelOpen();
+      setActiveDevice({ type: device, roomId });
+    }
+  };
+
+  // 注册卡片 ref，使用 roomId_type 作为 key
+  const registerCardRef = (device: DeviceType, roomId: RoomId, el: HTMLButtonElement | undefined) => {
+    if (el) {
+      cardRefs.set(`${roomId}_${device}`, el);
+    }
+  };
+
+  // 获取当前激活设备的房间状态
+  const activeRoomState = () => {
+    const dev = activeDevice();
+    if (!dev) return null;
+    return deviceState()[dev.roomId];
+  };
 
   return (
     <div class="h-full flex flex-col">
       {/* 设备选择器标签 */}
       <div class="flex items-center gap-2 mb-4">
-        <div class="w-2 h-2 rounded-full bg-apple-blue animate-pulse" />
-        <h3 class="text-sm font-semibold text-apple-text-primary tracking-tight">
+        <div class="w-2 h-2 rounded-full bg-accent animate-pulse" />
+        <h3 class="text-sm font-semibold text-primary tracking-tight">
           设备控制中心
         </h3>
       </div>
 
-      {/* 设备卡片网格 */}
-      <div class="flex-1 grid grid-cols-3 gap-4">
-        {/* 灯光设备卡片 */}
-        <div
-          onClick={() => setActiveDevice(activeDevice() === 'light' ? null : 'light')}
-          class={`
-            relative cursor-pointer rounded-apple-md border transition-all duration-200
-            ${deviceState().light
-              ? 'bg-apple-blue/10 border-apple-blue/30'
-              : 'bg-dark-surface-3/50 border-white/[0.05] hover:border-white/[0.1]'}
-          `}
-        >
-          <div class="p-4 flex flex-col items-center justify-center h-full gap-3">
-            {/* 设备图标 */}
-            <div class={`
-              w-12 h-12 rounded-full flex items-center justify-center transition-colors
-              ${deviceState().light ? 'bg-apple-blue/20' : 'bg-dark-surface-4'}
-            `}>
-              <svg class={`w-6 h-6 ${deviceState().light ? 'text-apple-blue' : 'text-apple-text-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            {/* 设备名称 */}
-            <span class="text-xs font-medium text-apple-text-secondary">灯光</span>
-            {/* 状态指示 */}
-            <span class={`text-[10px] ${deviceState().light ? 'text-apple-blue' : 'text-apple-text-tertiary'}`}>
-              {deviceState().light ? `亮度 ${deviceState().light_brightness}%` : '关闭'}
-            </span>
-          </div>
-          {/* 开启状态指示条 */}
-          <Show when={deviceState().light}>
-            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-apple-blue rounded-b-apple-md" />
-          </Show>
-        </div>
-
-        {/* 风扇设备卡片 */}
-        <div
-          onClick={() => setActiveDevice(activeDevice() === 'fan' ? null : 'fan')}
-          class={`
-            relative cursor-pointer rounded-apple-md border transition-all duration-200
-            ${deviceState().fan
-              ? 'bg-apple-blue/10 border-apple-blue/30'
-              : 'bg-dark-surface-3/50 border-white/[0.05] hover:border-white/[0.1]'}
-          `}
-        >
-          <div class="p-4 flex flex-col items-center justify-center h-full gap-3">
-            {/* 设备图标 */}
-            <div class={`
-              w-12 h-12 rounded-full flex items-center justify-center transition-colors
-              ${deviceState().fan ? 'bg-apple-blue/20' : 'bg-dark-surface-4'}
-            `}>
-              <svg class={`w-6 h-6 ${deviceState().fan ? 'text-apple-blue' : 'text-apple-text-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 12c-1.5 0-2.5 1-3 2-.5-1-1.5-2-3-2-2 0-3.5 1.5-3.5 3.5 0 1.5.8 2.5 2 3.5V19a2 2 0 002 2h5a2 2 0 002-2v-1.5c1.2-1 2-2 2-3.5 0-2-1.5-3.5-3.5-3.5z" />
-              </svg>
-            </div>
-            {/* 设备名称 */}
-            <span class="text-xs font-medium text-apple-text-secondary">风扇</span>
-            {/* 状态指示 */}
-            <span class={`text-[10px] ${deviceState().fan ? 'text-apple-blue' : 'text-apple-text-tertiary'}`}>
-              {deviceState().fan ? `档位 ${deviceState().fan_speed}` : '关闭'}
-            </span>
-          </div>
-          <Show when={deviceState().fan}>
-            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-apple-blue rounded-b-apple-md" />
-          </Show>
-        </div>
-
-        {/* 空调设备卡片 */}
-        <div
-          onClick={() => setActiveDevice(activeDevice() === 'ac' ? null : 'ac')}
-          class={`
-            relative cursor-pointer rounded-apple-md border transition-all duration-200
-            ${deviceState().air_condition
-              ? 'bg-apple-blue/10 border-apple-blue/30'
-              : 'bg-dark-surface-3/50 border-white/[0.05] hover:border-white/[0.1]'}
-          `}
-        >
-          <div class="p-4 flex flex-col items-center justify-center h-full gap-3">
-            {/* 设备图标 */}
-            <div class={`
-              w-12 h-12 rounded-full flex items-center justify-center transition-colors
-              ${deviceState().air_condition ? 'bg-apple-blue/20' : 'bg-dark-surface-4'}
-            `}>
-              <svg class={`w-6 h-6 ${deviceState().air_condition ? 'text-apple-blue' : 'text-apple-text-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            {/* 设备名称 */}
-            <span class="text-xs font-medium text-apple-text-secondary">空调</span>
-            {/* 状态指示 */}
-            <span class={`text-[10px] ${deviceState().air_condition ? 'text-apple-blue' : 'text-apple-text-tertiary'}`}>
-              {deviceState().air_condition ? `${deviceState().ac_temp}°C` : '关闭'}
-            </span>
-          </div>
-          <Show when={deviceState().air_condition}>
-            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-apple-blue rounded-b-apple-md" />
-          </Show>
-        </div>
+      {/* 房间-设备列表 */}
+      <div class="flex-1 overflow-y-auto">
+        {roomsConfig.map((room) => (
+          <RoomRow
+            roomId={room.id}
+            roomName={room.name}
+            devices={room.devices}
+            onDeviceClick={handleDeviceClick}
+            registerDeviceRef={(device, el) => registerCardRef(device, room.id, el)}
+          />
+        ))}
       </div>
 
-      {/* 展开的设备控制面板 */}
+      {/* 浮动设备控制面板 - 使用 Portal 渲染到 body 层级 */}
       <Show when={activeDevice()}>
-        <div class="mt-4 pt-4 border-t border-white/[0.05]">
-          <Show when={activeDevice() === 'light'}>
-            <Light />
-          </Show>
-          <Show when={activeDevice() === 'fan'}>
-            <Fan />
-          </Show>
-          <Show when={activeDevice() === 'ac'}>
-            <AirCondition />
-          </Show>
-        </div>
+        {(device) => <Portal>
+          <LiquidGlass
+            ref={(el) => { floatingRef = el; }}
+            radius={16}
+            blur={5}
+            background="rgba(255, 255, 255, 0.8)"
+            class="p-4 min-w-[200px] max-w-[280px] z-modal absolute shadow-apple"
+            style={{
+              position: 'fixed',
+              top: `${position.y ?? 0}px`,
+              left: `${position.x ?? 0}px`,
+            }}
+          >
+            <Show when={device().type === 'light'}>
+              <Light roomId={device().roomId} roomState={activeRoomState()!} />
+            </Show>
+            <Show when={device().type === 'fan'}>
+              <Fan roomId={device().roomId} roomState={activeRoomState()!} />
+            </Show>
+            <Show when={device().type === 'ac'}>
+              <AirCondition roomId={device().roomId} roomState={activeRoomState()!} />
+            </Show>
+            <Show when={device().type === 'curtain'}>
+              <Curtain roomId={device().roomId} roomState={activeRoomState()!} />
+            </Show>
+          </LiquidGlass>
+        </Portal>}
       </Show>
     </div>
   );

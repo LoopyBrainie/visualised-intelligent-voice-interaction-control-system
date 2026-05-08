@@ -5,8 +5,8 @@
   "identifier": "loopybrainie.visualised-intelligent-voice-interaction-control-system",
   "build": {
     "beforeDevCommand": "bun run start",
-    "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "bun run build",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "",
     "frontendDist": "../dist"
   },
   "app": {
@@ -32,7 +32,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../python_engine": "python_engine"
+      "../python_engine": "python_engine",
+      "../python_engine/vlm_config.toml": "python_engine/vlm_config.toml"
     }
   }
 }

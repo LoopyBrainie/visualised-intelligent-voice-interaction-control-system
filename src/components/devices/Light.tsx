@@ -1,51 +1,66 @@
 import { Component } from 'solid-js';
-import { deviceState, setDeviceState } from '../../store/deviceStore';
+import { invoke } from '@tauri-apps/api/core';
+import { RoomId, RoomDeviceState } from '../../store/deviceStore';
+import { LiquidGlassToggle } from '../ui/LiquidGlassToggle';
 
-export function Light() {
-  const toggleLight = () => {
-    setDeviceState(prev => ({ ...prev, light: !prev.light }));
+interface LightProps {
+  roomId: RoomId;
+  roomState: RoomDeviceState;
+}
+
+export const Light: Component<LightProps> = (props) => {
+  const toggleLight = async () => {
+    const newState = !props.roomState.light.is_on;
+    try {
+      await invoke('handle_voice_command', {
+        cmd: newState ? '开灯' : '关灯',
+        room: props.roomId,
+      });
+    } catch (e) {
+      console.error('Failed to toggle light:', e);
+    }
   };
 
-  const setBrightness = (value: number) => {
-    setDeviceState(prev => ({ ...prev, light_brightness: value }));
+  const setBrightness = async (value: number) => {
+    try {
+      await invoke('handle_voice_command', {
+        cmd: `灯亮度调到${value}`,
+        room: props.roomId,
+      });
+    } catch (e) {
+      console.error('Failed to set brightness:', e);
+    }
   };
 
   return (
-    <div class="flex items-center justify-between">
-      {/* 开关 */}
-      <div class="flex items-center gap-3">
-        <span class="text-xs text-apple-text-secondary">灯光</span>
-        <button
-          onClick={toggleLight}
-          class={`
-            relative w-11 h-6 rounded-full transition-colors duration-200
-            ${deviceState().light ? 'bg-apple-blue' : 'bg-dark-surface-4'}
-          `}
-        >
-          <span
-            class={`
-              absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200
-              ${deviceState().light ? 'left-[22px]' : 'left-0.5'}
-            `}
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between">
+        {/* 开关 */}
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-secondary">灯光</span>
+          <LiquidGlassToggle
+            checked={props.roomState.light.is_on}
+            onChange={toggleLight}
           />
-        </button>
+        </div>
       </div>
 
       {/* 亮度滑块 */}
       <div class="flex items-center gap-3">
-        <span class="text-xs text-apple-text-tertiary">{deviceState().light_brightness}%</span>
+        <span class="text-xs text-tertiary w-8">{props.roomState.light.brightness}%</span>
         <input
           type="range"
           min="0"
           max="100"
-          value={deviceState().light_brightness}
+          value={props.roomState.light.brightness}
           onInput={(e) => setBrightness(parseInt(e.currentTarget.value))}
-          class="w-24 h-1 bg-dark-surface-4 rounded-full appearance-none cursor-pointer
-            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-apple-blue
-            [&::-webkit-slider-thumb]:cursor-pointer"
+          class="flex-1 h-1 bg-black/[0.05] rounded-full appearance-none cursor-pointer
+            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-md
+            [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:duration-150
+            [&::-webkit-slider-thumb]:hover:scale-110"
         />
       </div>
     </div>
   );
-}
+};
