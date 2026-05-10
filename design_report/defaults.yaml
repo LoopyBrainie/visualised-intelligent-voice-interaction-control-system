@@ -1,0 +1,54 @@
+# Pandoc 编译默认配置
+# 使用方法: pandoc --defaults=defaults.yaml 设计报告.md -o output.pdf
+
+# ── 输入格式 ──────────────────────────────────────────
+from: markdown+smart
+to: pdf
+# +smart 启用智能引号、破折号等 Typography 扩展
+# 如需关闭，改为: markdown-smart
+
+# ── 元数据文件 ────────────────────────────────────────
+# 优先加载独立元数据文件，文档内联 YAML 可覆盖
+metadata-files:
+  - metadata.yaml
+
+# ── PDF 引擎 ──────────────────────────────────────────
+pdf-engine: xelatex
+# xelatex 对 Unicode / 中文支持最佳
+
+# ── 参考文献 ──────────────────────────────────────────
+bibliography:
+  - references.bib
+
+# 默认引用格式: IEEE Reference Guide 2023
+# 切换 ISO 690: 命令行加 --csl=iso690-numeric-en.csl
+csl: ieee.csl
+citeproc: true
+
+# ── 目录 ──────────────────────────────────────────────
+table-of-contents: true
+toc-depth: 3
+number-sections: true
+
+# ── 字体配置 (中文 PDF) ───────────────────────────────
+# 请确认系统已安装对应字体，或修改为系统可用字体
+variables:
+  header-includes: |
+    \providecommand{\xmpquote}[1]{\ignorespaces}
+    \usepackage[a4paper, left=2.2cm, right=2.2cm, top=2.5cm, bottom=2.5cm]{geometry}
+    \usepackage{array,booktabs,longtable}
+    \AtBeginEnvironment{longtable}{\small}
+  mainfont: "SimSun"
+  sansfont: "SimHei"
+  monofont: "SimSun"
+  fontsize: 12pt
+  # 代码块行号
+  highlight-style: pygments
+
+# ── 输出 ──────────────────────────────────────────────
+standalone: true
+
+# ── 文件作用域 ────────────────────────────────────────
+# 所有相对路径基于 defaults.yaml 所在目录解析
+# 确保 references.bib、CSL 文件与此文件在同一目录
+data-dir: "."
