@@ -1,6 +1,6 @@
 {
   "name": "visualised-intelligent-voice-interaction-control-system",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "可视化智能语音交互控制系统",
   "type": "module",
   "scripts": {
