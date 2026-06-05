@@ -12,6 +12,8 @@ Configuration: vlm_config.toml (do not use environment variables)
 import json
 import logging
 from pathlib import Path
+import openai
+from errors import ErrorCode, AppError, AppException, AppResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -104,6 +106,7 @@ def get_client():
             api_key=VLM_API_KEY,
             base_url=VLM_BASE_URL,
             timeout=VLM_TIMEOUT,
+            max_retries=0,  # 禁用 SDK 隐式重试，由 call_vlm 手动控制重试逻辑
         )
     except ImportError:
         logger.error("OpenAI SDK not installed. Run: pip install openai")
@@ -160,7 +163,7 @@ def encode_pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int =
     return buf.getvalue()
 
 
-def call_vlm(audio_b64: str, prompt: str = "提取设备控制指令", sample_rate: int = 16000) -> dict:
+def call_vlm(audio_b64: str, prompt: str = "提取设备控制指令", sample_rate: int = 16000) -> AppResult:
     """
     Call VLM API to convert audio to command.
 
@@ -170,184 +173,143 @@ def call_vlm(audio_b64: str, prompt: str = "提取设备控制指令", sample_ra
         sample_rate: Audio native sample rate in Hz (default 16000)
 
     Returns:
-        dict with keys:
-            - success: bool
-            - command: VLMCommand dict if success, None otherwise
-            - raw_text: str description if success, error message otherwise
-            - error: str error type if failed, None otherwise
+        AppResult: success with data={command, raw_text} or failure with error details
+
+    Raises:
+        AppException: on network/API errors, with original exception as __cause__
     """
-    import signal
     import base64 as b64
 
-    # Timeout handler for VLM API calls (Unix only)
-    def timeout_handler(signum, frame):
-        raise TimeoutError("VLM API 调用超时 (12s)")
+    # Parse audio prefix
+    mime_type, raw_audio = parse_audio_prefix(audio_b64)
 
-    # 设置 12 秒超时（略短于 Rust 端的 15 秒超时）
-    timeout_set = False
+    # Validate audio data
+    if not raw_audio or raw_audio.strip() == "":
+        return AppResult.fail(ErrorCode.INVALID_VALUE, "音频数据为空")
+
+    # Decode base64 to raw PCM bytes
     try:
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(12)
-        timeout_set = True
-    except (AttributeError, OSError):
-        # Windows 不支持 SIGALRM，使用线程超时替代
-        pass
+        pcm_bytes = b64.b64decode(raw_audio)
+    except Exception as e:
+        return AppResult.fail(ErrorCode.INVALID_VALUE, f"Base64 解码失败: {str(e)}")
 
+    # Encode PCM to WAV (API only supports encoded formats, not raw PCM)
     try:
-        # Parse audio prefix
-        mime_type, raw_audio = parse_audio_prefix(audio_b64)
+        wav_bytes = encode_pcm_to_wav(pcm_bytes, sample_rate=sample_rate, channels=1, bits=16)
+        wav_b64 = b64.b64encode(wav_bytes).decode("ascii")
+        # Use audio/wav for the API
+        mime_type = "audio/wav"
+    except Exception as e:
+        return AppResult.fail(ErrorCode.INTERNAL_ERROR, f"WAV 编码失败: {str(e)}")
 
-        # Validate audio data
-        if not raw_audio or raw_audio.strip() == "":
-            return {
-                "success": False,
-                "command": None,
-                "raw_text": "",
-                "error": "empty_audio",
-                "message": "音频数据为空",
-            }
+    # Get client
+    try:
+        client = get_client()
+    except Exception as e:
+        raise AppException(
+            AppError(code=ErrorCode.DAEMON_ERROR, message=f"无法初始化 VLM 客户端: {str(e)}")
+        ) from e
 
-        # Decode base64 to raw PCM bytes
-        try:
-            pcm_bytes = b64.b64decode(raw_audio)
-        except Exception as e:
-            return {
-                "success": False,
-                "command": None,
-                "raw_text": "",
-                "error": "decode_error",
-                "message": f"Base64 解码失败: {str(e)}",
-            }
-
-        # Encode PCM to WAV (API only supports encoded formats, not raw PCM)
-        try:
-            wav_bytes = encode_pcm_to_wav(pcm_bytes, sample_rate=sample_rate, channels=1, bits=16)
-            wav_b64 = b64.b64encode(wav_bytes).decode("ascii")
-            # Use audio/wav for the API
-            mime_type = "audio/wav"
-        except Exception as e:
-            return {
-                "success": False,
-                "command": None,
-                "raw_text": "",
-                "error": "wav_encode_error",
-                "message": f"WAV 编码失败: {str(e)}",
-            }
-
-        # Get client
-        try:
-            client = get_client()
-        except Exception as e:
-            return {
-                "success": False,
-                "command": None,
-                "raw_text": "",
-                "error": "client_error",
-                "message": f"无法初始化 VLM 客户端: {str(e)}",
-            }
-
-        # Build messages
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": f"data:{mime_type};base64,{wav_b64}"
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
+    # Build messages
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_audio",
+                    "input_audio": {
+                        "data": f"data:{mime_type};base64,{wav_b64}"
                     }
-                ]
-            }
-        ]
+                },
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+        }
+    ]
 
-        # Call API with retries
-        max_retries = VLM_MAX_RETRIES
-        last_error = None
+    # Call API with retries
+    max_retries = VLM_MAX_RETRIES
+    last_error = None
+    last_exception = None  # 保存原始异常对象，用于 raise ... from 传播链
+    is_timeout = False  # 显式布尔标志，替代脆弱的中文字符串匹配
 
-        for attempt in range(max_retries):
-            try:
-                completion = client.chat.completions.create(
-                    model=VLM_MODEL,
-                    messages=messages,
-                    response_format={"type": "json_object"},  # JSON Mode
-                    max_completion_tokens=VLM_MAX_COMPLETION_TOKENS,
-                    temperature=0.8,  # Low temperature for consistent JSON
+    for attempt in range(max_retries):
+        try:
+            completion = client.chat.completions.create(
+                model=VLM_MODEL,
+                messages=messages,
+                response_format={"type": "json_object"},  # JSON Mode
+                max_completion_tokens=VLM_MAX_COMPLETION_TOKENS,
+                temperature=0.8,  # Low temperature for consistent JSON
+            )
+
+            # Parse response
+            content = completion.choices[0].message.content
+
+            # Handle case where content might be wrapped in code blocks
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+
+            result = json.loads(content.strip())
+
+            # Validate result structure
+            if "device" in result and "action" in result:
+                return AppResult.ok(data={
+                    "command": {
+                        "device": result.get("device", "light"),
+                        "action": result.get("action", "on"),
+                        "room": result.get("room"),  # 可能为 null
+                        "target_value": result.get("target_value"),
+                        "confidence": result.get("confidence", 0.5),
+                    },
+                    "raw_text": f"{result.get('device', 'unknown')}-{result.get('action', 'unknown')}-{result.get('room', 'none')}",
+                })
+            else:
+                return AppResult.fail(
+                    ErrorCode.VLM_PARSE_ERROR,
+                    f"VLM 响应格式无效，缺少必要字段: {result}"
                 )
 
-                # Parse response
-                content = completion.choices[0].message.content
+        except openai.APITimeoutError as e:
+            last_error = "VLM API 调用超时"
+            last_exception = e
+            is_timeout = True
+            logger.warning(f"Attempt {attempt + 1}: VLM API 超时 (SDK timeout={VLM_TIMEOUT}s)")
+            break  # 不重试超时
 
-                # Handle case where content might be wrapped in code blocks
-                if content.startswith("```json"):
-                    content = content[7:]
-                if content.startswith("```"):
-                    content = content[3:]
-                if content.endswith("```"):
-                    content = content[:-3]
+        except json.JSONDecodeError as e:
+            last_error = f"JSON 解析失败: {str(e)}"
+            last_exception = e
+            logger.warning(f"Attempt {attempt + 1}: JSON decode error: {e}")
 
-                result = json.loads(content.strip())
+        except AppException:
+            raise  # 不捕获 AppException，让 handler 处理
 
-                # Validate result structure
-                if "device" in result and "action" in result:
-                    return {
-                        "success": True,
-                        "command": {
-                            "device": result.get("device", "light"),
-                            "action": result.get("action", "on"),
-                            "room": result.get("room"),  # 可能为 null
-                            "target_value": result.get("target_value"),
-                            "confidence": result.get("confidence", 0.5),
-                        },
-                        "raw_text": f"{result.get('device', 'unknown')}-{result.get('action', 'unknown')}-{result.get('room', 'none')}",
-                        "error": None,
-                        "message": "success",
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "command": None,
-                        "raw_text": content[:100] if content else "",
-                        "error": "parse_error",
-                        "message": f"VLM 响应格式无效，缺少必要字段: {result}",
-                    }
+        except Exception as e:
+            last_error = f"API 调用失败: {str(e)}"
+            last_exception = e
+            logger.warning(f"Attempt {attempt + 1}: {e}")
 
-            except TimeoutError:
-                last_error = "VLM API 调用超时 (12s)"
-                logger.warning(f"Attempt {attempt + 1}: VLM API 超时")
-                break  # 不重试超时
+        # Wait before retry (exponential backoff)
+        if attempt < max_retries - 1:
+            import time
+            time.sleep(0.5 * (2 ** attempt))
 
-            except json.JSONDecodeError as e:
-                last_error = f"JSON 解析失败: {str(e)}"
-                logger.warning(f"Attempt {attempt + 1}: JSON decode error: {e}")
-
-            except Exception as e:
-                last_error = f"API 调用失败: {str(e)}"
-                logger.warning(f"Attempt {attempt + 1}: {e}")
-
-            # Wait before retry (exponential backoff)
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(0.5 * (2 ** attempt))
-
-        # All retries failed
-        return {
-            "success": False,
-            "command": None,
-            "raw_text": "",
-            "error": "api_error",
-            "message": f"VLM API 调用失败，已重试 {max_retries} 次: {last_error}",
-        }
-
-    finally:
-        # 取消 alarm
-        if timeout_set:
-            signal.alarm(0)
+    # All retries failed — raise AppException 保留完整异常链
+    raise AppException(
+        AppError(
+            code=ErrorCode.VLM_TIMEOUT if is_timeout else ErrorCode.INTERNAL_ERROR,
+            message=f"VLM API 调用失败，已重试 {max_retries} 次: {last_error}",
+            detail=str(last_exception) if last_exception else None,
+        )
+    ) from last_exception
 
 
 # Test function

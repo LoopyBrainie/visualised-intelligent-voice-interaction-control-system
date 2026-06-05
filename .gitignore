@@ -9,3 +9,6 @@ python_engine/vlm_config.toml
 python_engine/__pycache__/
 python_engine/debug_audio/
 .liquid-glass
+python_engine/hand_landmarker.task
+.impeccable
+.codegraph

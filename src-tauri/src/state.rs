@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock, Mutex};
 
 use crate::daemon_manager::DaemonManager;
+use crate::error::AppError;
+use crate::logger::log_error;
 
 // ============================================================
 // 空调模式枚举
@@ -162,13 +164,19 @@ impl GlobalState {
     }
 
     /// 获取读锁（用于查看状态）
-    pub fn read(&self) -> Result<std::sync::RwLockReadGuard<'_, DeviceState>, std::sync::PoisonError<std::sync::RwLockReadGuard<'_, DeviceState>>> {
-        self.inner.read()
+    pub fn read(&self) -> Result<std::sync::RwLockReadGuard<'_, DeviceState>, AppError> {
+        self.inner.read().map_err(|e| {
+            log_error(&format!("GlobalState RwLock 中毒 (read): {}", e));
+            AppError::lock_error("GlobalState(rwlock)")
+        })
     }
 
     /// 获取写锁（用于修改状态）
-    pub fn write(&self) -> Result<std::sync::RwLockWriteGuard<'_, DeviceState>, std::sync::PoisonError<std::sync::RwLockWriteGuard<'_, DeviceState>>> {
-        self.inner.write()
+    pub fn write(&self) -> Result<std::sync::RwLockWriteGuard<'_, DeviceState>, AppError> {
+        self.inner.write().map_err(|e| {
+            log_error(&format!("GlobalState RwLock 中毒 (write): {}", e));
+            AppError::lock_error("GlobalState(rwlock)")
+        })
     }
 }
 

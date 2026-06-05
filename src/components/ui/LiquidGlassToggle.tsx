@@ -18,10 +18,11 @@ export const LiquidGlassToggle: Component<LiquidGlassToggleProps> = (props) => {
       {/* 轨道 */}
       <LiquidGlass
         radius={9999}
-        blur={8}
-        contrast={1.3}
-        brightness={1.06}
-        background={props.checked ? 'rgba(0, 113, 227, 0.8)' : 'rgba(138, 138, 138, 0.8)'}
+        background={props.checked ? 'var(--color-glass-toggle-on)' : 'var(--color-glass-toggle-off)'}
+        blur={6}
+        edgeBlur={2}
+        displacementScale={15}
+        contrast={1.2}
         style={{ position: 'absolute', inset: '0', transition: 'background 200ms ease' }}
       />
       {/* 滑块 */}
@@ -35,10 +36,11 @@ export const LiquidGlassToggle: Component<LiquidGlassToggleProps> = (props) => {
       >
         <LiquidGlass
           radius={9999}
-          blur={8}
-          contrast={1.3}
-          brightness={1.06}
-          background="rgba(255, 255, 255, 1)"
+          background="var(--color-bg-secondary)"
+          blur={4}
+          edgeBlur={2}
+          displacementScale={10}
+          contrast={1.25}
           class="w-full h-full"
         />
       </div>

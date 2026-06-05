@@ -12,6 +12,7 @@ use tokio::time::{timeout, Duration as TokioDuration};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{num_complex::Complex, FftPlanner};
 use tauri::{AppHandle, Emitter};
+use crate::error::AppError;
 use crate::logger::{log_error_ts, log_info_ts, log_warn_ts, new_trace_id};
 
 use crate::control;
@@ -160,7 +161,7 @@ impl VlmClient {
     pub fn new(daemon_url: &str) -> Self {
         // 配置 client 以避免 Windows 上的连接复用问题
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(35))
             .pool_max_idle_per_host(1)  // 限制每个 host 的空闲连接数
             .http1_only()  // 强制使用 HTTP/1.1，避免连接复用复杂性
             .build()
@@ -173,10 +174,10 @@ impl VlmClient {
     }
 
     /// 发送音频到 VLM Daemon 并返回响应
-    /// 超时时间: 15秒（完整音频可能较大）
+    /// 超时时间: 35秒（内层网络超时，外层 tokio 兜底 37s）
     /// trace_id 用于全链路追踪
     /// sample_rate: 音频原生采样率（Hz），用于 WAV 编码
-    pub async fn send_audio(&self, audio_samples: &[i16], prompt: &str, trace_id: &str, sample_rate: u32) -> Result<String, String> {
+    pub async fn send_audio(&self, audio_samples: &[i16], prompt: &str, trace_id: &str, sample_rate: u32) -> Result<String, AppError> {
         use crate::logger::log_info_ts;
 
         // 1. i16 PCM → u8 bytes (Little Endian)
@@ -198,23 +199,23 @@ impl VlmClient {
 
         log_info_ts(&format!("[→] VLM 请求发出，音频大小: {} bytes ({} samples)", pcm_bytes.len(), audio_samples.len()), trace_id, "voice");
 
-        // 4. HTTP POST with 15s timeout
+        // 4. HTTP POST with 35s timeout
         let request = self
             .client
             .post(format!("{}/vlm", self.daemon_url))
             .json(&payload)
             .send();
 
-        match timeout(TokioDuration::from_secs(15), request).await {
+        match timeout(TokioDuration::from_secs(37), request).await {
             Ok(Ok(response)) => {
                 log_info_ts("[←] VLM 响应收到", trace_id, "voice");
                 response
                     .text()
                     .await
-                    .map_err(|e| format!("Read error: {}", e))
+                    .map_err(|e| AppError::network_error(format!("读取响应失败: {}", e)))
             }
-            Ok(Err(e)) => Err(format!("HTTP error: {}", e)),
-            Err(_) => Err("VLM请求超时 (15s)，请检查网络连接或VLM服务状态".to_string()),
+            Ok(Err(e)) => Err(AppError::network_error(format!("HTTP 请求失败: {}", e))),
+            Err(_) => Err(AppError::vlm_timeout()),
         }
     }
 }
@@ -237,19 +238,18 @@ impl VoiceManager {
     pub fn start(
         app: AppHandle,
         state: crate::state::GlobalState,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AppError> {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
-            .ok_or("No input device found")?;
+            .ok_or_else(|| AppError::audio_device("未找到输入设备"))?;
 
         let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         println!("[Voice] 使用设备: {}", device_name);
 
-        // 获取设备原生配置
         let config = device
             .default_input_config()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| AppError::audio_device(e.to_string()))?;
 
         let native_rate = config.sample_rate();
         let native_format = config.sample_format();
@@ -373,14 +373,14 @@ impl VoiceManager {
                     None,
                 )
             }
-            _ => return Err(format!("不支持的音频格式: {:?}", native_format)),
+            _ => return Err(AppError::audio_device(format!("不支持的音频格式: {:?}", native_format))),
         }
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::audio_device(e.to_string()))?;
 
         let stream = Arc::new(Mutex::new(stream));
         let stream_for_init = stream.clone();
 
-        stream.lock().unwrap().play().map_err(|e| e.to_string())?;
+        stream.lock().map_err(AppError::from)?.play().map_err(|e| AppError::audio_device(e.to_string()))?;
         println!("[Voice] 音频流启动成功");
 
         // ================================================================
@@ -412,7 +412,7 @@ impl VoiceManager {
                 match msg {
                     VlmMessage::Audio(audio_data, trace_id) => {
                         // 通知前端 VLM 正在处理
-                        let _ = app_for_vlm.emit("vlm-processing", true);
+                        let _ = app_for_vlm.emit("vlm-processing", true); // intentionally ignored: UI event, non-critical
 
                         log_info_ts("[处理开始] 收到音频数据，开始 VLM 识别", &trace_id, "voice");
 
@@ -421,8 +421,9 @@ impl VoiceManager {
                                 log_info_ts(&format!("[VLM] 响应: {}", &response[..response.len().min(200)]), &trace_id, "voice");
 
                                 // 解析 Python daemon 回传的日志并发送到前端
+                                // logs 在 AppResult 格式中嵌套在 data.logs 下
                                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&response) {
-                                    if let Some(logs) = parsed.get("logs").and_then(|l| l.as_array()) {
+                                    if let Some(logs) = parsed.get("data").and_then(|d| d.get("logs")).and_then(|l| l.as_array()) {
                                         for log_entry in logs {
                                             if let Some(log_obj) = log_entry.as_object() {
                                                 let _ts = log_obj.get("timestamp").and_then(|v| v.as_str()).unwrap_or("00:00:00.000");
@@ -430,7 +431,6 @@ impl VoiceManager {
                                                 let msg = log_obj.get("message").and_then(|v| v.as_str()).unwrap_or("");
                                                 let src = log_obj.get("source").and_then(|v| v.as_str());
                                                 let tid = log_obj.get("trace_id").and_then(|v| v.as_str()).unwrap_or(&trace_id);
-                                                // 使用 logger 模块的 emit_log 发送到前端
                                                 let entry = crate::logger::LogEntry::new(level, msg)
                                                     .with_trace_id(tid)
                                                     .with_source(src.unwrap_or("python"));
@@ -448,7 +448,7 @@ impl VoiceManager {
                                     } else {
                                         log_info_ts("[执行成功] 设备状态已更新", &trace_id, "voice");
                                         if let Ok(guard) = state_clone.read() {
-                                            let _ = app_for_vlm.emit("device-state-changed", (*guard).clone());
+                                            let _ = app_for_vlm.emit("device-state-changed", (*guard).clone()); // intentionally ignored: UI event
                                         }
                                     }
                                 } else {
@@ -460,7 +460,7 @@ impl VoiceManager {
                             }
                         }
 
-                        let _ = app_for_vlm.emit("vlm-processing", false);
+                        let _ = app_for_vlm.emit("vlm-processing", false); // intentionally ignored: UI event
                     }
                     VlmMessage::Stop => {
                         println!("[Voice] 收到 Stop 信号，录制状态={}", recording_state_for_vlm.is_recording());
@@ -471,6 +471,7 @@ impl VoiceManager {
                             let trace_id = new_trace_id();
                             log_info_ts(&format!("[停止] 发送最终音频，大小: {} samples", audio_data.len()), &trace_id, "voice");
 
+                            // intentionally ignored: one-way UI notification, no recovery path
                             let _ = app_for_vlm.emit("vlm-processing", true);
                             log_info_ts("[VLM] 准备发送音频到 daemon...", &trace_id, "voice");
                             match vlm_client.send_audio(&audio_data, "请提取设备控制指令", &trace_id, native_rate_for_vlm).await {
@@ -478,7 +479,7 @@ impl VoiceManager {
                                     log_info_ts(&format!("[VLM] 最终响应: {}", &response[..response.len().min(200)]), &trace_id, "voice");
 
                                     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&response) {
-                                        if let Some(logs) = parsed.get("logs").and_then(|l| l.as_array()) {
+                                        if let Some(logs) = parsed.get("data").and_then(|d| d.get("logs")).and_then(|l| l.as_array()) {
                                             for log_entry in logs {
                                                 if let Some(log_obj) = log_entry.as_object() {
                                                     let level = log_obj.get("level").and_then(|v| v.as_str()).unwrap_or("INFO");
@@ -502,6 +503,7 @@ impl VoiceManager {
                                         } else {
                                             log_info_ts("[执行成功] 设备状态已更新", &trace_id, "voice");
                                             if let Ok(guard) = state_clone.read() {
+                                                // intentionally ignored: one-way UI notification, no recovery path
                                                 let _ = app_for_vlm.emit("device-state-changed", (*guard).clone());
                                             }
                                         }
@@ -512,6 +514,7 @@ impl VoiceManager {
                                 }
                             }
                             log_info_ts("[VLM] 处理完成，停止 processing 状态", &trace_id, "voice");
+                            // intentionally ignored: one-way UI notification, no recovery path
                             let _ = app_for_vlm.emit("vlm-processing", false);
                         } else {
                             println!("[Voice] 音频为空，跳过 VLM 发送");
@@ -541,6 +544,7 @@ impl VoiceManager {
                                 sample_rate: native_rate_for_fft,
                                 fft_size: 512,
                             };
+                            // intentionally ignored: one-way UI notification, no recovery path
                             let _ = app_for_fft.emit("spectrum-update", payload);
                         }
                         // 手势模式时：完全不执行 FFT，节省 CPU

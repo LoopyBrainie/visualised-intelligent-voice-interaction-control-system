@@ -1,138 +1,124 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Apple × Morandi Design System — Strict DESIGN.md Alignment
-   Apple's bones with Morandi's flesh
+   SPARV Design System — Apple × Morandi
+   Restrained palette, LiquidGlass on floating chrome only
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @theme {
-  /* ─────────────────────────────────────────────────────────────────────────
-     Background Colors — Apple Light Gray Palette
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Background ────────────────────────────────────────────────────────── */
   --color-bg-primary: #f5f5f7;
   --color-bg-secondary: #ffffff;
   --color-bg-tertiary: #f5f5f7;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Text Colors — Apple Dark-on-Light Hierarchy
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Text ──────────────────────────────────────────────────────────────── */
   --color-text-primary: #1d1d1f;
   --color-text-secondary: rgba(0, 0, 0, 0.8);
-  --color-text-tertiary: rgba(0, 0, 0, 0.48);
+  --color-text-tertiary: rgba(0, 0, 0, 0.55);
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Accent — Apple Blue (唯一强调色)
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Accent — single interactive color ─────────────────────────────────── */
   --color-accent: #0071e3;
   --color-accent-hover: #0077ed;
   --color-accent-pressed: #005bb4;
   --color-link: #0066cc;
   --color-link-dark: #2997ff;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Surface Colors — Light Mode Elevation
-     ───────────────────────────────────────────────────────────────────────── */
-  --color-surface-1: rgba(255, 255, 255, 0.80);
-  --color-surface-2: rgba(255, 255, 255, 0.60);
-  --color-surface-3: rgba(255, 255, 255, 0.40);
+  /* ── Surface (light mode elevation) ────────────────────────────────────── */
+  --color-surface-1: rgba(235, 235, 240, 0.80);
+  --color-surface-2: rgba(235, 235, 240, 0.60);
+  --color-surface-3: rgba(235, 235, 240, 0.40);
   --color-surface-4: rgba(0, 0, 0, 0.05);
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Dark Surface Colors — For Terminal/Dark Components
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Dark surfaces (log panel, terminal) ───────────────────────────────── */
   --color-dark-surface-1: #272729;
   --color-dark-surface-2: #262628;
   --color-dark-surface-3: #28282a;
   --color-dark-surface-4: #2a2a2d;
   --color-dark-surface-5: #242426;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Button States
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Button states ─────────────────────────────────────────────────────── */
   --color-btn-active: #ededf2;
   --color-btn-default: #fafafc;
   --color-overlay: rgba(210, 210, 215, 0.64);
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Border Colors
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Borders ───────────────────────────────────────────────────────────── */
   --color-border: rgba(0, 0, 0, 0.08);
   --color-border-strong: rgba(0, 0, 0, 0.15);
+  --color-hairline: #e0e0e0;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Device Status Colors — Morandi Decorative (icons only)
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Device Morandi tones (icons only) ─────────────────────────────────── */
   --color-device-light-on: #d4a853;
   --color-device-light-glow: rgba(212, 168, 83, 0.5);
-  --color-device-light-off: #9a9590;
-
   --color-device-fan-on: #7fb572;
-  --color-device-fan-blade: #8fc47f;
-  --color-device-fan-off: #9a9590;
-
   --color-device-ac-on: #6ba3c4;
-  --color-device-ac-off: #9a9590;
-
   --color-device-curtain-on: #a89bc4;
-  --color-device-curtain-off: #9a9590;
+  --color-device-off: #8e8e93;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Log Level Colors
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Log levels ────────────────────────────────────────────────────────── */
   --color-log-error: #ff3b30;
   --color-log-warn: #ff9500;
   --color-log-info: #0071e3;
   --color-log-debug: #8e8e93;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Room Colors
-     ───────────────────────────────────────────────────────────────────────── */
-  --color-room-bg: #e8e7e5;
-  --color-room-border: #d0cfc9;
-  --color-room-wall: #f0efed;
-  --color-room-door: #c9c8c4;
+  /* ── Spacing (4pt base) ────────────────────────────────────────────────── */
+  --spacing-xxs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Spacing System — Apple Granular Scale
-     ───────────────────────────────────────────────────────────────────────── */
-  --spacing-xs: 2px;
-  --spacing-sm: 4px;
-  --spacing-md: 8px;
-  --spacing-lg: 12px;
-  --spacing-xl: 16px;
-  --spacing-2xl: 20px;
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Border Radius — Apple Scale
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Radius ────────────────────────────────────────────────────────────── */
   --radius-sm: 8px;
-  --radius-md: 16px;
+  --radius-md: 12px;
   --radius-lg: 20px;
   --radius-xl: 24px;
   --radius-pill: 980px;
   --radius-full: 9999px;
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Shadows — Apple Single Diffused Shadow
-     ───────────────────────────────────────────────────────────────────────── */
-  --shadow-apple: 3px 5px 30px rgba(0, 0, 0, 0.22);
-  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.06);
-
-  /* ─────────────────────────────────────────────────────────────────────────
-     Glass Effect — Navigation Only
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Glass (floating chrome only) ──────────────────────────────────────── */
   --blur-glass: 20px;
   --glass-dark: rgba(0, 0, 0, 0.8);
 
-  /* ─────────────────────────────────────────────────────────────────────────
-     Typography — SF Pro Optical Sizing
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ── Glass surface backgrounds ──────────────────────────────────────────── */
+  --color-glass-bar: rgba(235, 235, 240, 0.10);
+  --color-glass-surface: rgba(235, 235, 240, 0.80);
+  --color-glass-accent: rgba(0, 113, 227, 0.6);
+  --color-glass-toggle-on: rgba(0, 113, 227, 0.8);
+  --color-glass-toggle-off: rgba(138, 138, 138, 0.8);
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  --header-height: 36px;
+  --media-strip-height: 140px;
+  --control-bar-height: 72px;
+
+  /* ── Responsive sizing tokens (overridden per @media tier) ─────────────── */
+  --grid-card-min: 140px;
+  --grid-card-max: 200px;
+  --icon-disc-size: 48px;
+  --control-button-size: 44px;
+  --floating-panel-base-shift: 1;
+  --spectrum-bar-max-width: 8px;
+  --content-padding-x: var(--spacing-xl);
+  --content-padding-y: var(--spacing-xl);
+
+  /* ── Typography ────────────────────────────────────────────────────────── */
   --font-sf-pro: 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+
+  /* ── Transitions ───────────────────────────────────────────────────────── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Base Styles
+   Base
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -149,7 +135,7 @@
 html, body {
   margin: 0;
   padding: 0;
-  min-height: 100vh;
+  height: 100vh;
   overflow: hidden;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
@@ -158,19 +144,8 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Portrait mode: allow page scrolling when cards stack vertically */
-@media (max-aspect-ratio: 1/1) {
-  html, body {
-    overflow: auto;
-  }
-}
-
-body {
-  scroll-behavior: smooth;
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
-   Typography — Apple SF Pro Hierarchy
+   Typography — SF Pro Hierarchy
    ═══════════════════════════════════════════════════════════════════════════ */
 
 h1, h2, h3, h4, h5, h6 {
@@ -180,65 +155,48 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.15;
 }
 
-/* Apple Typography Utility Classes */
 .text-hero {
-  font-family: var(--font-sf-pro);
   font-size: 56px;
   font-weight: 600;
   line-height: 1.07;
   letter-spacing: -0.28px;
 }
 
-.text-section-heading {
-  font-family: var(--font-sf-pro);
+.text-display-lg {
   font-size: 40px;
   font-weight: 600;
   line-height: 1.10;
-  letter-spacing: normal;
 }
 
-.text-tile-heading {
-  font-family: var(--font-sf-pro);
-  font-size: 28px;
-  font-weight: 400;
-  line-height: 1.14;
-  letter-spacing: 0.196px;
-}
-
-.text-card-title {
-  font-family: var(--font-sf-pro);
-  font-size: 21px;
-  font-weight: 700;
-  line-height: 1.19;
-  letter-spacing: 0.231px;
-}
-
-.text-subheading {
-  font-family: var(--font-sf-pro);
-  font-size: 21px;
-  font-weight: 400;
-  line-height: 1.19;
-  letter-spacing: 0.231px;
-}
-
-.text-nav-heading {
-  font-family: var(--font-sf-pro);
+.text-display-md {
   font-size: 34px;
   font-weight: 600;
   line-height: 1.47;
   letter-spacing: -0.374px;
 }
 
+.text-lead {
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.14;
+  letter-spacing: 0.196px;
+}
+
+.text-tagline {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+
 .text-body {
-  font-family: var(--font-sf-pro);
   font-size: 17px;
   font-weight: 400;
   line-height: 1.47;
   letter-spacing: -0.374px;
 }
 
-.text-body-emphasis {
-  font-family: var(--font-sf-pro);
+.text-body-strong {
   font-size: 17px;
   font-weight: 600;
   line-height: 1.24;
@@ -246,39 +204,35 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .text-caption {
-  font-family: var(--font-sf-pro);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.29;
   letter-spacing: -0.224px;
 }
 
-.text-caption-bold {
-  font-family: var(--font-sf-pro);
+.text-caption-strong {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.29;
   letter-spacing: -0.224px;
 }
 
-.text-micro {
-  font-family: var(--font-sf-pro);
+.text-fine {
   font-size: 12px;
   font-weight: 400;
-  line-height: 1.33;
+  line-height: 1.0;
   letter-spacing: -0.12px;
 }
 
-.text-micro-bold {
-  font-family: var(--font-sf-pro);
+.text-mono {
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
-  line-height: 1.33;
-  letter-spacing: -0.12px;
+  font-weight: 400;
+  line-height: 1.0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Focus States — Apple Blue Ring
+   Focus
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :focus-visible {
@@ -287,7 +241,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Button Base Styles
+   Buttons
    ═══════════════════════════════════════════════════════════════════════════ */
 
 button {
@@ -295,7 +249,7 @@ button {
   font-family: inherit;
   border: none;
   background: transparent;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--duration-normal) var(--ease-out-quart);
 }
 
 button:disabled {
@@ -303,126 +257,61 @@ button:disabled {
   opacity: 0.5;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   Button Styles — Apple CTA System
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.btn-apple-blue {
+.btn-primary {
   background: var(--color-accent);
   color: #ffffff;
-  padding: 8px 15px;
-  border-radius: var(--radius-md);
-  font-family: var(--font-sf-pro);
+  padding: 12px 24px;
+  border-radius: var(--radius-full);
   font-size: 17px;
   font-weight: 400;
-  line-height: 2.41;
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) var(--ease-out-quart);
 }
 
-.btn-apple-blue:hover {
+.btn-primary:hover {
   background: var(--color-accent-hover);
 }
 
-.btn-apple-blue:active {
-  background: var(--color-btn-active);
+.btn-primary:active {
+  background: var(--color-accent-pressed);
+  transform: scale(0.95);
 }
 
-.btn-apple-dark {
-  background: var(--color-text-primary);
-  color: #ffffff;
-  padding: 8px 15px;
-  border-radius: var(--radius-md);
-  font-family: var(--font-sf-pro);
+.btn-ghost {
+  background: transparent;
+  color: var(--color-accent);
+  padding: 12px 24px;
+  border-radius: var(--radius-full);
   font-size: 17px;
   font-weight: 400;
-  line-height: 2.41;
-  transition: all 0.2s ease;
+  border: 1px solid var(--color-accent);
+  transition: all var(--duration-normal) var(--ease-out-quart);
 }
 
-.btn-pill {
-  background: transparent;
-  color: var(--color-link);
-  padding: 4px 12px;
-  border-radius: var(--radius-pill);
-  font-family: var(--font-sf-pro);
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.43;
-  border: 1px solid var(--color-link);
-  transition: all 0.2s ease;
-}
-
-.btn-pill:hover {
-  text-decoration: underline;
-}
-
-.btn-filter {
-  background: var(--color-btn-default);
-  color: rgba(0, 0, 0, 0.8);
-  padding: 0px 14px;
-  border-radius: var(--radius-lg);
-  font-family: var(--font-sf-pro);
-  font-size: 14px;
-  font-weight: 400;
-  border: 3px solid rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
-}
-
-.btn-media {
+.btn-icon {
   background: var(--color-overlay);
-  color: rgba(0, 0, 0, 0.48);
-  border-radius: 50%;
+  color: var(--color-text-primary);
+  border-radius: var(--radius-full);
   width: 44px;
   height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all var(--duration-fast) var(--ease-out-quart);
 }
 
-.btn-media:active {
+.btn-icon:active {
   transform: scale(0.9);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Input Base Styles
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-input[type="text"],
-input[type="number"],
-input[type="email"],
-input[type="search"],
-textarea {
-  font-family: inherit;
-  font-size: inherit;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  padding: 0.6em 1em;
-  background-color: var(--color-surface-2);
-  color: var(--color-text-primary);
-  transition: all 0.2s ease;
-}
-
-input[type="text"]:focus,
-input[type="number"]:focus,
-input[type="email"]:focus,
-input[type="search"]:focus,
-textarea:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
-  outline: none;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Range Slider — iOS Style
+   Inputs
    ═══════════════════════════════════════════════════════════════════════════ */
 
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  height: 3px;
-  background: var(--color-surface-4);
+  height: 4px;
+  background: rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-full);
   outline: none;
 }
@@ -430,19 +319,18 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--color-accent);
   cursor: pointer;
   border: none;
   box-shadow: 0 2px 8px rgba(0, 113, 227, 0.3);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--duration-fast) var(--ease-out-quart);
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.08);
-  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.4);
 }
 
 input[type="range"]::-webkit-slider-thumb:active {
@@ -450,8 +338,8 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--color-accent);
   cursor: pointer;
@@ -459,7 +347,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Scrollbar — Apple Light Style
+   Scrollbar
    ═══════════════════════════════════════════════════════════════════════════ */
 
 ::-webkit-scrollbar {
@@ -480,85 +368,13 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(0, 0, 0, 0.25);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   Glass Effects — Navigation Only (Apple Translucent Dark)
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-/* Navigation glass — Apple's signature dark translucent bar */
-.glass-nav {
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   Card Styles — Apple Solid Backgrounds (No Glass, No Borders)
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.apple-card {
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-subtle);
-}
-
-.apple-card-elevated {
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-apple);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Utility Classes
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.text-primary { color: var(--color-text-primary); }
-.text-secondary { color: var(--color-text-secondary); }
-.text-tertiary { color: var(--color-text-tertiary); }
-
-.bg-primary { background-color: var(--color-bg-primary); }
-.bg-secondary { background-color: var(--color-bg-secondary); }
-.bg-tertiary { background-color: var(--color-bg-tertiary); }
-
-.border-default { border-color: var(--color-border); }
-.border-strong { border-color: var(--color-border-strong); }
-
-.bg-dark-1 { background-color: var(--color-dark-surface-1); }
-.bg-dark-2 { background-color: var(--color-dark-surface-2); }
-.bg-dark-3 { background-color: var(--color-dark-surface-3); }
-.bg-dark-4 { background-color: var(--color-dark-surface-4); }
-.bg-dark-5 { background-color: var(--color-dark-surface-5); }
-
-.bg-accent { background-color: var(--color-accent); }
-.bg-accent-hover { background-color: var(--color-accent-hover); }
-.bg-accent-pressed { background-color: var(--color-accent-pressed); }
-.bg-overlay { background-color: var(--color-overlay); }
-
-.text-accent { color: var(--color-accent); }
-.text-link { color: var(--color-link); }
-.text-link-dark { color: var(--color-link-dark); }
-.text-white { color: #ffffff; }
-
-.shadow-apple { box-shadow: var(--shadow-apple); }
-.shadow-subtle { box-shadow: var(--shadow-subtle); }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Device Status Glow Effects — Decorative Only
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.glow-light {
-  filter: drop-shadow(0 0 10px var(--color-device-light-glow));
-}
-
-.glow-fan {
-  filter: drop-shadow(0 0 10px rgba(127, 181, 114, 0.5));
-}
-
-.glow-ac {
-  filter: drop-shadow(0 0 10px rgba(107, 163, 196, 0.5));
-}
-
-.glow-curtain {
-  filter: drop-shadow(0 0 10px rgba(168, 155, 196, 0.5));
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -570,14 +386,19 @@ input[type="range"]::-moz-range-thumb {
   to { opacity: 1; }
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes scale-in {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes panel-enter {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes panel-exit {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.92); }
 }
 
 @keyframes fanSpin {
@@ -585,132 +406,186 @@ input[type="range"]::-moz-range-thumb {
   to { transform: rotate(360deg); }
 }
 
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-6px); }
+  40%      { transform: translateX(6px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(3px); }
+}
+
+.animate-fade-in {
+  animation: fade-in var(--duration-slow) var(--ease-out-expo);
 }
 
 .animate-scale-in {
-  animation: scale-in 0.2s ease-out;
+  animation: scale-in var(--duration-normal) var(--ease-out-expo);
+}
+
+.animate-shake {
+  animation: shake 400ms var(--ease-out-quart);
+}
+
+.panel-enter {
+  animation: panel-enter 220ms var(--ease-out-expo) both;
+}
+
+.panel-exit {
+  animation: panel-exit 160ms var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Z-Index Layers
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.z-map { z-index: 0; }
-.z-spectrum { z-index: 5; }
+.z-base { z-index: 0; }
+.z-media { z-index: 5; }
 .z-panel { z-index: 10; }
 .z-nav { z-index: 30; }
 .z-control-bar { z-index: 40; }
-.z-modal { z-index: 50; }
+.z-floating { z-index: 50; }
 .z-toast { z-index: 60; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Scrollbar Hide - For Touch Scrolling Areas
+   Device Icon Grid — Constrained Fluid (A+)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-/* Show scrollbar when overflowing */
-.show-scrollbar {
-  -ms-overflow-style: auto;
-  scrollbar-width: thin;
-}
-
-.show-scrollbar::-webkit-scrollbar {
-  height: 4px;
-}
-
-.show-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.show-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 2px;
+.device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--grid-card-min), var(--grid-card-max)));
+  gap: var(--spacing-md);
+  justify-content: center;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Room Device Card Layout — Horizontal Scroll
+   Utility
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.room-row {
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--spacing-lg) 0;
+.text-primary { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-tertiary { color: var(--color-text-tertiary); }
+.text-accent { color: var(--color-accent); }
+.text-white { color: #ffffff; }
+
+.bg-primary { background-color: var(--color-bg-primary); }
+.bg-secondary { background-color: var(--color-bg-secondary); }
+.bg-accent { background-color: var(--color-accent); }
+
+.border-default { border-color: var(--color-border); }
+.border-hairline { border-color: var(--color-hairline); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Gesture Mode — Expand media strip for camera preview
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.gesture-mode {
+  --media-strip-height: 360px;
 }
 
-.room-row:last-child {
-  border-bottom: none;
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive Primitives
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Two-column room grid at wide; transparent at standard to avoid breaking
+   the natural document flow. */
+.rooms-grid { display: contents; }
+
+/* Generic square control button — Fan / AC steppers. Sizing only; centering
+   is left to the existing Tailwind flex utilities on each consumer. */
+.control-button {
+  width: var(--control-button-size);
+  height: var(--control-button-size);
 }
 
-.room-devices-scroll {
-  position: relative;
+/* Floating device panel width cap — multiplies per-device-type widths. */
+.floating-panel {
+  max-width: calc(320px * var(--floating-panel-base-shift, 1));
 }
 
-.room-devices-scroll .flex {
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-md) 0;
-  -webkit-overflow-scrolling: touch;
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive Tiers — width 1023 / 1600, height 599 / 800
+   Precedence: default → narrow → wide → short → s-tall
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1023px) {
+  :root {
+    --header-height: 32px;
+    --media-strip-height: 100px;
+    --control-bar-height: 60px;
+    --grid-card-min: 110px;
+    --grid-card-max: 150px;
+    --icon-disc-size: 40px;
+    --control-button-size: 40px;
+    --floating-panel-base-shift: 0.8;
+    --spectrum-bar-max-width: 6px;
+    --content-padding-x: var(--spacing-md);
+    --content-padding-y: var(--spacing-md);
+  }
+  .gesture-mode {
+    --media-strip-height: 240px;
+  }
 }
 
-.room-devices-scroll .flex.scrollbar-hide {
-  scrollbar-width: none;
+@media (min-width: 1600px) {
+  :root {
+    --header-height: 40px;
+    --media-strip-height: 160px;
+    --control-bar-height: 76px;
+    --grid-card-min: 160px;
+    --grid-card-max: 220px;
+    --icon-disc-size: 56px;
+    --floating-panel-base-shift: 1.2;
+    --spectrum-bar-max-width: 10px;
+    --content-padding-x: var(--spacing-2xl);
+    --content-padding-y: var(--spacing-2xl);
+  }
+  .gesture-mode {
+    --media-strip-height: 400px;
+  }
+  .rooms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: var(--spacing-2xl);
+  }
+  .rooms-grid > section {
+    margin-bottom: 0;
+  }
 }
 
-.room-devices-scroll .flex.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+@media (max-height: 599px) {
+  :root {
+    --header-height: 28px;
+    --media-strip-height: 80px;
+    --control-bar-height: 56px;
+    --icon-disc-size: 36px;
+    --control-button-size: 40px;
+    --floating-panel-base-shift: 0.7;
+    --spectrum-bar-max-width: 4px;
+    --content-padding-x: var(--spacing-md);
+    --content-padding-y: var(--spacing-sm);
+  }
+  .gesture-mode {
+    --media-strip-height: 200px;
+  }
 }
 
-.room-devices-scroll .flex.show-scrollbar::-webkit-scrollbar {
-  height: 4px;
-}
-
-.room-devices-scroll .flex.show-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.room-devices-scroll .flex.show-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 2px;
-}
-
-.device-card {
-  scroll-snap-align: start;
-  flex-shrink: 0;
-  border-radius: var(--radius-md);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.device-card:active {
-  transform: scale(0.95);
-}
-
-/* Scroll gradient mask — hint at more content */
-.scroll-gradient {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 40px;
-  background: linear-gradient(to right, transparent, var(--color-bg-primary));
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.room-devices-scroll.is-overflowing .scroll-gradient {
-  opacity: 1;
+@media (min-height: 800px) and (max-width: 1599px) {
+  :root {
+    --media-strip-height: 160px;
+  }
+  .gesture-mode {
+    --media-strip-height: 420px;
+  }
 }

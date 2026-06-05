@@ -9,7 +9,6 @@ import { Curtain } from './devices/Curtain';
 import { RoomRow } from './rooms/RoomRow';
 import { RoomId, deviceState } from '../store/deviceStore';
 import { LiquidGlass } from './ui/LiquidGlass';
-import { useSnapshot } from './ui/SnapshotContext';
 
 type DeviceType = 'light' | 'fan' | 'ac' | 'curtain';
 
@@ -19,21 +18,20 @@ interface Room {
   devices: DeviceType[];
 }
 
-// 房间-设备布局配置
 const roomsConfig: Room[] = [
-  {
-    id: 'living_room',
-    name: '客厅',
-    devices: ['light', 'ac', 'fan', 'curtain'],
-  },
-  {
-    id: 'bedroom',
-    name: '卧室',
-    devices: ['light', 'ac'],
-  },
+  { id: 'living_room', name: '客厅', devices: ['light', 'ac', 'fan', 'curtain'] },
+  { id: 'bedroom', name: '卧室', devices: ['light', 'ac'] },
 ];
 
-// 激活设备信息（设备类型 + 房间）
+// Popover 宽度按设备类型分 — 内容密度差异大,统一宽度会让 Curtain 显得
+// 空旷、AC 显得拥挤。slider/stepper/speed-buttons 各取所需。
+const popoverWidths: Record<DeviceType, string> = {
+  light: 'min-w-[240px] max-w-[300px]',   // slider wants room
+  fan: 'min-w-[200px] max-w-[260px]',     // 3 speed buttons
+  ac: 'min-w-[240px] max-w-[300px]',      // stepper + temperature
+  curtain: 'min-w-[160px] max-w-[200px]', // compact, single row
+};
+
 interface ActiveDeviceInfo {
   type: DeviceType;
   roomId: RoomId;
@@ -41,11 +39,10 @@ interface ActiveDeviceInfo {
 
 export function VisualizationPanel() {
   const [activeDevice, setActiveDevice] = createSignal<ActiveDeviceInfo | null>(null);
-  const { notifyPanelOpen, notifyPanelClose } = useSnapshot();
+  const [closing, setClosing] = createSignal(false);
 
-  // Floating UI references - 使用 roomId_type 作为 key
   let floatingRef: HTMLDivElement | undefined;
-  let cardRefs: Map<string, HTMLButtonElement> = new Map();
+  const cardRefs = new Map<string, HTMLButtonElement>();
 
   const position = useFloating(
     () => activeDevice() ? { getBoundingClientRect: () => getDeviceRect() } : null,
@@ -56,48 +53,44 @@ export function VisualizationPanel() {
     }
   );
 
-  // 获取当前激活设备卡片的 bounding rect
   const getDeviceRect = () => {
     const device = activeDevice();
     if (!device) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
-
     const key = `${device.roomId}_${device.type}`;
     const cardEl = cardRefs.get(key);
     if (!cardEl) return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+    return cardEl.getBoundingClientRect();
+  };
 
-    const rect = cardEl.getBoundingClientRect();
-    return {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
-      top: rect.top,
-      left: rect.left,
-      right: rect.right,
-      bottom: rect.bottom,
-    };
+  const closePanel = () => {
+    setClosing(true);
+  };
+
+  const onPanelAnimationEnd = (e: AnimationEvent) => {
+    if (e.animationName === 'panel-exit') {
+      setActiveDevice(null);
+      setClosing(false);
+    }
   };
 
   const handleDeviceClick = async (device: DeviceType, roomId: RoomId) => {
     const current = activeDevice();
     if (current && current.type === device && current.roomId === roomId) {
-      setActiveDevice(null);
-      notifyPanelClose();
-    } else {
-      // Capture snapshot BEFORE panel renders (prevents mirror-in-mirror)
-      await notifyPanelOpen();
-      setActiveDevice({ type: device, roomId });
+      closePanel();
+      return;
     }
+    if (current) {
+      closePanel();
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    }
+    setActiveDevice({ type: device, roomId });
+    setClosing(false);
   };
 
-  // 注册卡片 ref，使用 roomId_type 作为 key
   const registerCardRef = (device: DeviceType, roomId: RoomId, el: HTMLButtonElement | undefined) => {
-    if (el) {
-      cardRefs.set(`${roomId}_${device}`, el);
-    }
+    if (el) cardRefs.set(`${roomId}_${device}`, el);
   };
 
-  // 获取当前激活设备的房间状态
   const activeRoomState = () => {
     const dev = activeDevice();
     if (!dev) return null;
@@ -105,17 +98,8 @@ export function VisualizationPanel() {
   };
 
   return (
-    <div class="h-full flex flex-col">
-      {/* 设备选择器标签 */}
-      <div class="flex items-center gap-2 mb-4">
-        <div class="w-2 h-2 rounded-full bg-accent animate-pulse" />
-        <h3 class="text-sm font-semibold text-primary tracking-tight">
-          设备控制中心
-        </h3>
-      </div>
-
-      {/* 房间-设备列表 */}
-      <div class="flex-1 overflow-y-auto">
+    <div>
+      <div class="rooms-grid">
         {roomsConfig.map((room) => (
           <RoomRow
             roomId={room.id}
@@ -127,20 +111,28 @@ export function VisualizationPanel() {
         ))}
       </div>
 
-      {/* 浮动设备控制面板 - 使用 Portal 渲染到 body 层级 */}
+      {/* Floating device control panel */}
       <Show when={activeDevice()}>
         {(device) => <Portal>
-          <LiquidGlass
+          <div
             ref={(el) => { floatingRef = el; }}
-            radius={16}
-            blur={5}
-            background="rgba(255, 255, 255, 0.8)"
-            class="p-4 min-w-[200px] max-w-[280px] z-modal absolute shadow-apple"
+            class={`z-floating ${closing() ? 'panel-exit' : 'panel-enter'}`}
             style={{
               position: 'fixed',
               top: `${position.y ?? 0}px`,
               left: `${position.x ?? 0}px`,
+              'transform-origin': 'top left',
             }}
+            onanimationend={onPanelAnimationEnd}
+          >
+          <LiquidGlass
+            radius={16}
+            background="rgba(235, 235, 240, 0.85)"
+            blur={20}
+            edgeBlur={5}
+            displacementScale={35}
+            contrast={1.2}
+            class={`p-4 floating-panel ${popoverWidths[device().type]}`}
           >
             <Show when={device().type === 'light'}>
               <Light roomId={device().roomId} roomState={activeRoomState()!} />
@@ -155,6 +147,7 @@ export function VisualizationPanel() {
               <Curtain roomId={device().roomId} roomState={activeRoomState()!} />
             </Show>
           </LiquidGlass>
+          </div>
         </Portal>}
       </Show>
     </div>

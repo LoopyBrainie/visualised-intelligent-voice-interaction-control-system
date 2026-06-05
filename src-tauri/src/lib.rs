@@ -3,12 +3,14 @@
 // 模块2: state.rs (状态), control.rs (指令控制)
 // 模块4: py_engine.rs (PyO3绑定)
 
+mod error;
 mod logger;
 mod py_engine;
 mod state;
 mod control;
 mod voice;
 mod daemon_manager;
+mod gesture;
 
 use std::env;
 use std::path::PathBuf;
@@ -17,18 +19,18 @@ use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use anyhow::Result;
 use tauri::{Emitter, Manager};
+use crate::error::AppError;
 use logger::{log_error, log_info, log_warn};
 use state::{GlobalState, DaemonState};
 use control::{parse_command, execute_command};
-// voice::VoiceManager is imported via voice module
 
 /// 核心逻辑：寻找并同步 uv 环境，返回 Python 解释器路径
 fn resolve_python_runtime() -> anyhow::Result<PathBuf> {
     // 1. 获取基准目录（支持开发态和安装态）
     // 生产环境下通常是安装目录，Windows 结构: bin/ -> 上级目录
     let base_dir = env::current_exe()?
-        .parent().unwrap()   // bin 目录
-        .parent().unwrap()   // 根目录
+        .parent().ok_or_else(|| anyhow::anyhow!("无法获取 exe 父目录"))?
+        .parent().ok_or_else(|| anyhow::anyhow!("无法获取安装根目录"))?
         .to_path_buf();
 
     // 2. 针对不同环境的 python_engine 路径探测
@@ -40,7 +42,7 @@ fn resolve_python_runtime() -> anyhow::Result<PathBuf> {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
         if !manifest_dir.is_empty() {
             PathBuf::from(&manifest_dir)
-                .parent().unwrap()
+                .parent().ok_or_else(|| anyhow::anyhow!("无法解析 CARGO_MANIFEST_DIR 父目录"))?
                 .join("python_engine")
         } else {
             // 最终回退到当前工作目录
@@ -72,16 +74,16 @@ fn resolve_python_runtime() -> anyhow::Result<PathBuf> {
 
 /// 将错误通过 Tauri 事件发送到前端
 fn emit_env_error(app: &tauri::AppHandle, err: &str) {
+    // intentionally ignored: one-way UI notification, no recovery path
     let _ = app.emit("env-error", err);
 }
 
 /// 获取运行时 site-packages 目录（fallback 备用）
 fn get_runtime_libs_dir() -> PathBuf {
-    let exe_dir = env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap()
-        .to_path_buf();
+    let exe_dir = match env::current_exe() {
+        Ok(exe) => exe.parent().map(|p| p.to_path_buf()).unwrap_or_default(),
+        Err(_) => env::current_dir().unwrap_or_default(),
+    };
 
     // 1. exe 同级 python_engine
     let sibling = exe_dir.join("python_engine").join(".venv").join("Lib").join("site-packages");
@@ -98,10 +100,11 @@ fn get_runtime_libs_dir() -> PathBuf {
     // 3. CARGO_MANIFEST_DIR 回退
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     if !manifest_dir.is_empty() {
-        let manifest = PathBuf::from(&manifest_dir).parent().unwrap()
-            .join("python_engine").join(".venv").join("Lib").join("site-packages");
-        if manifest.exists() {
-            return manifest;
+        if let Some(parent) = PathBuf::from(&manifest_dir).parent() {
+            let manifest = parent.join("python_engine").join(".venv").join("Lib").join("site-packages");
+            if manifest.exists() {
+                return manifest;
+            }
         }
     }
 
@@ -228,13 +231,14 @@ const EMIT_DEVICE_UPDATE: &str = "device-state-changed";
 // VoiceManager 生命周期管理（模块级别）
 static VOICE_MANAGER: Lazy<Mutex<Option<voice::VoiceManager>>> = Lazy::new(|| Mutex::new(None));
 
+// GestureManager 生命周期管理（模块级别）
+static GESTURE_MANAGER: Lazy<Mutex<Option<gesture::GestureManager>>> = Lazy::new(|| Mutex::new(None));
+
 /// 处理语音指令的 Tauri command
 #[tauri::command]
-fn handle_voice_command(cmd: &str, room: Option<&str>, state: tauri::State<GlobalState>, app_handle: tauri::AppHandle) -> Result<String, String> {
-    // 1. 解析指令
-    let mut parsed = parse_command(cmd).map_err(|e| format!("{:?}", e))?;
+fn handle_voice_command(cmd: &str, room: Option<&str>, state: tauri::State<GlobalState>, app_handle: tauri::AppHandle) -> Result<String, AppError> {
+    let mut parsed = parse_command(cmd)?;
 
-    // 2. 如果前端指定了房间，覆盖解析出的房间
     if let Some(room_str) = room {
         parsed.room = match room_str {
             "bedroom" => control::TargetRoom::Bedroom,
@@ -243,17 +247,15 @@ fn handle_voice_command(cmd: &str, room: Option<&str>, state: tauri::State<Globa
         };
     }
 
-    // 3. 执行指令（直接操作全局状态）
-    execute_command(&parsed, &state).map_err(|e| format!("{:?}", e))?;
+    execute_command(&parsed, &state)?;
 
-    // 3. 获取更新后的状态并广播到前端
     let device_state = {
-        let guard = state.read().map_err(|e| format!("Lock error: {}", e))?;
+        let guard = state.read()?;
         guard.clone()
     };
 
-    // 4. 广播状态更新到前端
     if let Some(window) = app_handle.get_webview_window("main") {
+        // intentionally ignored: one-way UI notification, no recovery path
         let _ = window.emit(EMIT_DEVICE_UPDATE, &device_state);
     }
 
@@ -262,9 +264,9 @@ fn handle_voice_command(cmd: &str, room: Option<&str>, state: tauri::State<Globa
 
 /// 获取当前设备状态
 #[tauri::command]
-fn get_device_state(state: tauri::State<GlobalState>) -> Result<String, String> {
-    let guard = state.read().map_err(|e| format!("Lock error: {}", e))?;
-    serde_json::to_string(&*guard).map_err(|e| format!("Serialization error: {}", e))
+fn get_device_state(state: tauri::State<GlobalState>) -> Result<String, AppError> {
+    let guard = state.read()?;
+    Ok(serde_json::to_string(&*guard)?)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -282,7 +284,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(global_state)  // 注册全局状态
         .manage(DaemonState::new())  // 注册 Daemon 进程管理
-        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state, start_voice_capture, stop_voice_capture, list_audio_devices, set_language_mode])
+        .invoke_handler(tauri::generate_handler![greet, handle_voice_command, get_device_state, start_voice_capture, stop_voice_capture, list_audio_devices, list_cameras, set_language_mode, start_gesture_capture, stop_gesture_capture, get_gesture_health, get_camera_frame])
         .setup(|app| {
             // C. 初始化日志系统
             if let Err(e) = logger::init_logger(app.handle().clone()) {
@@ -336,10 +338,10 @@ fn greet(name: &str) -> String {
 
 /// 开始语音采集（同时启用录制模式）
 #[tauri::command]
-fn start_voice_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalState>) -> Result<String, String> {
+fn start_voice_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalState>) -> Result<String, AppError> {
     log_info("语音采集开始");
 
-    let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let guard = VOICE_MANAGER.lock()?;
     if let Some(ref manager) = *guard {
         // 已存在管理器，直接启用录制模式
         manager.start_recording();
@@ -351,7 +353,7 @@ fn start_voice_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalS
         match voice::VoiceManager::start(app_handle, state_clone) {
             Ok(manager) => {
                 manager.start_recording();
-                let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+                let mut guard = VOICE_MANAGER.lock()?;
                 *guard = Some(manager);
                 log_info("VoiceManager 启动成功，录制模式已启用");
                 Ok("started".to_string())
@@ -366,10 +368,10 @@ fn start_voice_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalS
 
 /// 停止语音采集（同时停止录制并发送完整音频到 VLM）
 #[tauri::command]
-fn stop_voice_capture() -> Result<String, String> {
+fn stop_voice_capture() -> Result<String, AppError> {
     log_info("语音采集停止");
 
-    let guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let guard = VOICE_MANAGER.lock()?;
     if let Some(ref manager) = *guard {
         // 停止录制并发送完整音频到 VLM
         manager.stop_recording_and_send();
@@ -382,7 +384,7 @@ fn stop_voice_capture() -> Result<String, String> {
 
 /// 列出可用麦克风设备
 #[tauri::command]
-fn list_audio_devices() -> Result<Vec<voice::MicrophoneDevice>, String> {
+fn list_audio_devices() -> Result<Vec<voice::MicrophoneDevice>, AppError> {
     Ok(voice::list_devices())
 }
 
@@ -395,8 +397,8 @@ fn set_language_mode(
     enabled: bool,
     app_handle: tauri::AppHandle,
     state: tauri::State<GlobalState>,
-) -> Result<(), String> {
-    let mut guard = VOICE_MANAGER.lock().map_err(|e| format!("Lock error: {}", e))?;
+) -> Result<(), AppError> {
+    let mut guard = VOICE_MANAGER.lock()?;
 
     // 如果语言模式启用但 VoiceManager 未运行，自动启动它
     if enabled && guard.is_none() {
@@ -410,7 +412,7 @@ fn set_language_mode(
             }
             Err(e) => {
                 log_error(&format!("自动启动 VoiceManager 失败: {}", e));
-                return Err(format!("自动启动失败: {}", e));
+                return Err(e);
             }
         }
     } else if let Some(ref manager) = *guard {
@@ -419,4 +421,86 @@ fn set_language_mode(
     }
 
     Ok(())
+}
+
+/// 列出可用摄像头
+#[tauri::command]
+fn list_cameras() -> Result<Vec<gesture::CameraInfo>, AppError> {
+    Ok(gesture::list_cameras())
+}
+
+/// 开始手势采集（打开摄像头 + 启动 Python 手势识别管线）
+/// `camera_id`: 可选摄像头标识符，不传则使用默认摄像头（索引 0）
+#[tauri::command]
+fn start_gesture_capture(app_handle: tauri::AppHandle, state: tauri::State<GlobalState>, camera_id: Option<String>) -> Result<String, AppError> {
+    log_info(&format!("手势采集开始, camera_id: {:?}", camera_id));
+
+    let mut guard = GESTURE_MANAGER.lock()?;
+    if let Some(ref manager) = *guard {
+        if manager.is_active() {
+            log_info("GestureManager 已在运行");
+            return Ok("already_running".to_string());
+        }
+    }
+
+    // 停止旧的，启动新的
+    if let Some(ref mut manager) = *guard {
+        manager.stop();
+    }
+    *guard = None;
+    drop(guard);
+
+    let state_clone = (*state).clone();
+    match gesture::GestureManager::start(app_handle.clone(), state_clone, camera_id) {
+        Ok(manager) => {
+            let mut guard = GESTURE_MANAGER.lock()?;
+            *guard = Some(manager);
+            log_info("GestureManager 启动成功");
+            Ok("started".to_string())
+        }
+        Err(e) => {
+            log_error(&format!("GestureManager 启动失败: {}", e));
+            Err(e)
+        }
+    }
+}
+
+/// 停止手势采集（关闭摄像头 + 停止手势识别线程）
+#[tauri::command]
+fn stop_gesture_capture() -> Result<String, AppError> {
+    log_info("手势采集停止");
+
+    let mut guard = GESTURE_MANAGER.lock()?;
+    if let Some(ref mut manager) = *guard {
+        manager.stop();
+        *guard = None;
+        log_info("GestureManager 已停止");
+        Ok("stopped".to_string())
+    } else {
+        Ok("not_running".to_string())
+    }
+}
+
+/// 获取手势系统健康状态
+#[tauri::command]
+fn get_gesture_health() -> Result<gesture::GestureHealth, AppError> {
+    let guard = GESTURE_MANAGER.lock()?;
+    if let Some(ref manager) = *guard {
+        Ok(manager.context_snapshot().health)
+    } else {
+        Ok(gesture::GestureHealth::default())
+    }
+}
+
+/// 获取最新一帧摄像头 JPEG 字节（供前端 data URL 渲染使用）
+/// 返回 None 表示摄像头尚未产出第一帧（仍在初始化中）。
+/// 设计动机: 旧版 camera:// 自定义协议在 Tauri 2 + WebView2 上
+/// WebView2 自身不识别该 scheme，请求在到达 Tauri 主机进程前就被
+/// webview 拒绝 (ERR_UNKNOWN_URL_SCHEME)。改用 Tauri command +
+/// Blob URL 完全绕开 scheme 注册，零 WebView2 兼容性问题。
+#[tauri::command]
+fn get_camera_frame() -> Result<Option<Vec<u8>>, AppError> {
+    let guard = GESTURE_MANAGER.lock()
+        .map_err(|e| AppError::from(e))?;
+    Ok(guard.as_ref().and_then(|m| m.latest_frame()))
 }
