@@ -1,34 +1,39 @@
 // control.rs - 指令解析与设备控制模块
 // 职责: 指令字典、指令解析、设备状态更新、VLM 指令解析
 use crate::state::{AirConditionState, GlobalState, LightState, FanState, RoomDeviceState};
+use crate::error::AppError;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 use strsim::jaro_winkler;
-use thiserror::Error;
 
 // ============================================================
 // VLM 指令解析类型定义 (C1, C4)
 // ============================================================
 
-/// VLM 错误类型
-#[derive(Error, Debug)]
-pub enum VoiceError {
-    #[error("VLM 请求超时")]
-    VlmTimeout,
-    #[error("VLM 响应解析失败: {0}")]
-    VlmParseError(String),
-    #[error("VLM 置信度低: {0:.2} < 0.6")]
-    VlmLowConfidence(f64),
-    #[error("设备执行失败: {0}")]
-    ExecuteError(String),
-    #[error("无法识别指令")]
-    UnknownCommand,
+/// Python daemon AppResult 包装的错误载荷
+/// 对应 Python AppError: {"code": "vlm_timeout", "message": "...", "detail": "..."}
+#[derive(Deserialize, Debug)]
+struct DaemonErrorPayload {
+    code: String,
+    message: String,
+    #[serde(default)]
+    detail: Option<String>,
 }
 
-/// VLM API 返回的 JSON 结构（Python Daemon 输出）
+/// Python daemon AppResult 外层包装
+/// 成功: {"success": true, "data": {"command": {...}, "raw_text": "...", "logs": [...]}}
+/// 失败: {"success": false, "error": {"code": "...", "message": "...", "detail": "..."}}
+#[derive(Deserialize, Debug)]
+struct DaemonResponse {
+    success: bool,
+    data: Option<serde_json::Value>,
+    error: Option<DaemonErrorPayload>,
+}
+
+/// VLM API 返回的内部 JSON 结构（Python Daemon data 字段内容）
 /// 格式: {"command": {"device": "light", "action": "on", ...}, "raw_text": "..."}
 #[derive(Deserialize, Debug)]
 pub struct VlmResponse {
@@ -43,7 +48,7 @@ pub struct VlmCommandPayload {
     pub device: String,
     pub action: String,
     #[serde(default)]
-    pub room: Option<String>,  // 房间信息: "living_room" | "bedroom"
+    pub room: Option<String>,
     #[serde(default)]
     pub target_value: Option<f64>,
     #[serde(default)]
@@ -59,19 +64,39 @@ pub struct VlmCommand {
     pub value: Option<u8>,
 }
 
+/// 将 Python ErrorCode 字符串映射为 AppError
+fn map_daemon_error(err: &DaemonErrorPayload) -> AppError {
+    match err.code.as_str() {
+        "vlm_timeout" => AppError::vlm_timeout(),
+        "vlm_parse_error" => AppError::vlm_parse_error(&err.message),
+        "vlm_low_confidence" => AppError::vlm_low_confidence(0.0),
+        "invalid_value" => AppError::invalid_value("unknown", 0),
+        "device_not_found" => AppError::device_not_found(&err.message),
+        "lock_error" => AppError::lock_error(&err.message),
+        "audio_device" => AppError::audio_device(&err.message),
+        "camera_error" => AppError::camera_error(&err.message),
+        "network_error" => AppError::network_error(&err.message),
+        "python_env" => AppError::python_env(&err.message),
+        "daemon_error" => AppError::daemon_error(&err.message),
+        "gesture_error" => AppError::gesture_error(&err.message),
+        "internal_error" | _ => AppError::internal_error(
+            err.detail.as_deref().unwrap_or(&err.message)
+        ),
+    }
+}
+
 impl TryFrom<VlmResponse> for VlmCommand {
-    type Error = VoiceError;
+    type Error = AppError;
 
     fn try_from(vlm: VlmResponse) -> Result<Self, Self::Error> {
-        // 将 daemon action 格式转换为 CommandType
         let action = match vlm.command.action.as_str() {
             "on" | "turn_on" | "open" => CommandType::TurnOn,
             "off" | "turn_off" | "close" => CommandType::TurnOff,
             "set_level" | "set_value" => CommandType::SetValue,
-            "auto" => CommandType::SetValue, // 空调自动模式映射到 SetValue
+            "auto" => CommandType::SetValue,
             "query" => CommandType::Query,
             _ => {
-                return Err(VoiceError::VlmParseError(format!(
+                return Err(AppError::vlm_parse_error(format!(
                     "未知的 action 类型: {}",
                     vlm.command.action
                 )))
@@ -82,20 +107,17 @@ impl TryFrom<VlmResponse> for VlmCommand {
             "light" => TargetDevice::Light,
             "fan" => TargetDevice::Fan,
             "ac" | "air_condition" | "aircondition" => TargetDevice::AirCondition,
-            "curtain" => TargetDevice::Curtain, // 新增窗帘支持
+            "curtain" => TargetDevice::Curtain,
             "all" => TargetDevice::All,
             _ => {
-                return Err(VoiceError::VlmParseError(format!(
+                return Err(AppError::vlm_parse_error(format!(
                     "未知的 device 类型: {}",
                     vlm.command.device
                 )))
             }
         };
 
-        // 从 target_value 提取数值
         let value = vlm.command.target_value.map(|v| v as u8);
-
-        // 使用 room 字段（如果提供的话）
         let room = vlm.command.room.clone();
 
         Ok(VlmCommand {
@@ -107,15 +129,35 @@ impl TryFrom<VlmResponse> for VlmCommand {
     }
 }
 
-/// VLM JSON 解析入口
-pub fn parse_vlm_response(json: &str) -> Result<VlmCommand, VoiceError> {
-    let vlm: VlmResponse =
-        serde_json::from_str(json).map_err(|e| VoiceError::VlmParseError(e.to_string()))?;
+/// VLM JSON 解析入口 — 对齐 Python AppResult 包装格式
+///
+/// Python daemon 返回格式:
+///   成功: {"success": true, "data": {"command": {...}, "raw_text": "...", "logs": [...]}}
+///   失败: {"success": false, "error": {"code": "vlm_timeout", "message": "...", "detail": "..."}}
+pub fn parse_vlm_response(json: &str) -> Result<VlmCommand, AppError> {
+    // Step 1: 解析外层 AppResult 包装
+    let daemon_resp: DaemonResponse = serde_json::from_str(json)
+        .map_err(|e| AppError::vlm_parse_error(format!("AppResult 解析失败: {e}")))?;
 
-    // 置信度检查 (可选)
+    // Step 2: 检查 success 字段
+    if !daemon_resp.success {
+        if let Some(err) = &daemon_resp.error {
+            return Err(map_daemon_error(err));
+        }
+        return Err(AppError::vlm_parse_error("daemon 返回 success=false 但缺少 error 字段"));
+    }
+
+    // Step 3: 提取 data，解析内部 VlmResponse
+    let data = daemon_resp.data
+        .ok_or_else(|| AppError::vlm_parse_error("daemon 返回 success=true 但缺少 data 字段"))?;
+
+    let vlm: VlmResponse = serde_json::from_value(data)
+        .map_err(|e| AppError::vlm_parse_error(format!("data 字段解析失败: {e}")))?;
+
+    // Step 4: 置信度检查
     if let Some(conf) = vlm.command.confidence {
         if conf < 0.6 {
-            return Err(VoiceError::VlmLowConfidence(conf));
+            return Err(AppError::vlm_low_confidence(conf));
         }
     }
 
@@ -123,7 +165,7 @@ pub fn parse_vlm_response(json: &str) -> Result<VlmCommand, VoiceError> {
 }
 
 /// 执行 VLM 指令
-pub fn execute_vlm_command(cmd: &VlmCommand, state: &GlobalState) -> Result<(), VoiceError> {
+pub fn execute_vlm_command(cmd: &VlmCommand, state: &GlobalState) -> Result<(), AppError> {
     // 将 VLM 的房间字符串转换为 TargetRoom
     let room = match cmd.room.as_deref() {
         Some("bedroom") => TargetRoom::Bedroom,
@@ -138,7 +180,6 @@ pub fn execute_vlm_command(cmd: &VlmCommand, state: &GlobalState) -> Result<(), 
         room,
     };
     execute_command(&parsed, state)
-        .map_err(|e| VoiceError::ExecuteError(e.to_string()))
 }
 
 // ============================================================
@@ -187,28 +228,6 @@ pub struct ParsedCommand {
     pub value: Option<u8>, // 用于 SetValue (温度/亮度/风速)
     pub room: TargetRoom,  // 目标房间
 }
-
-/// 控制错误
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ControlError {
-    Unrecognized(String),
-    InvalidValue { expected: String, got: u8 },
-    DeviceNotFound(String),
-}
-
-impl std::fmt::Display for ControlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ControlError::Unrecognized(s) => write!(f, "无法识别的指令: {}", s),
-            ControlError::InvalidValue { expected, got } => {
-                write!(f, "无效数值: 期望 {}，实际 {}", expected, got)
-            }
-            ControlError::DeviceNotFound(s) => write!(f, "设备未找到: {}", s),
-        }
-    }
-}
-
-impl std::error::Error for ControlError {}
 
 // ============================================================
 // 指令字典（精确匹配）
@@ -297,8 +316,8 @@ lazy_static! {
 ///
 /// # Returns
 /// * `Ok(ParsedCommand)` - 解析成功
-/// * `Err(ControlError)` - 解析失败
-pub fn parse_command(input: &str) -> Result<ParsedCommand, ControlError> {
+/// * `Err(AppError)` - 解析失败
+pub fn parse_command(input: &str) -> Result<ParsedCommand, AppError> {
     let normalized = input.trim().to_lowercase();
 
     // Step 1: 提取房间信息
@@ -344,7 +363,7 @@ pub fn parse_command(input: &str) -> Result<ParsedCommand, ControlError> {
             value,
             room,
         }),
-        None => Err(ControlError::Unrecognized(input.to_string())),
+        None => Err(AppError::unrecognized(input)),
     }
 }
 
@@ -505,12 +524,12 @@ fn fuzzy_match_command(input: &str) -> Option<(CommandType, TargetDevice, Option
 ///
 /// # Returns
 /// * `Ok(())` - 执行成功
-/// * `Err(ControlError)` - 执行失败
-pub fn execute_command(cmd: &ParsedCommand, state: &GlobalState) -> Result<(), ControlError> {
+/// * `Err(AppError)` - 执行失败
+pub fn execute_command(cmd: &ParsedCommand, state: &GlobalState) -> Result<(), AppError> {
     // 获取写锁（用于多线程保护）
     let mut guard = state
         .write()
-        .map_err(|_| ControlError::DeviceNotFound("Lock poisoned".into()))?;
+        .map_err(|_| AppError::lock_error("GlobalState"))?;
 
     // 根据目标房间执行指令
     match cmd.room {
@@ -524,7 +543,7 @@ pub fn execute_command(cmd: &ParsedCommand, state: &GlobalState) -> Result<(), C
 }
 
 /// 将指令应用到指定房间
-fn apply_command_to_room(cmd: &ParsedCommand, room: &mut RoomDeviceState) -> Result<(), ControlError> {
+fn apply_command_to_room(cmd: &ParsedCommand, room: &mut RoomDeviceState) -> Result<(), AppError> {
     match cmd.target {
         TargetDevice::Light => apply_light(cmd, &mut room.light),
         TargetDevice::AirCondition => apply_ac(cmd, &mut room.air_condition),
@@ -541,7 +560,7 @@ fn apply_command_to_room(cmd: &ParsedCommand, room: &mut RoomDeviceState) -> Res
 }
 
 /// 应用灯光指令
-fn apply_light(cmd: &ParsedCommand, light: &mut LightState) -> Result<(), ControlError> {
+fn apply_light(cmd: &ParsedCommand, light: &mut LightState) -> Result<(), AppError> {
     match cmd.cmd_type {
         CommandType::TurnOn => {
             light.is_on = true;
@@ -552,10 +571,7 @@ fn apply_light(cmd: &ParsedCommand, light: &mut LightState) -> Result<(), Contro
         CommandType::SetValue => {
             if let Some(v) = cmd.value {
                 if v > 100 {
-                    return Err(ControlError::InvalidValue {
-                        expected: "0-100".into(),
-                        got: v,
-                    });
+                    return Err(AppError::invalid_value("0-100", v));
                 }
                 light.brightness = v;
             }
@@ -568,7 +584,7 @@ fn apply_light(cmd: &ParsedCommand, light: &mut LightState) -> Result<(), Contro
 }
 
 /// 应用空调指令
-fn apply_ac(cmd: &ParsedCommand, ac: &mut AirConditionState) -> Result<(), ControlError> {
+fn apply_ac(cmd: &ParsedCommand, ac: &mut AirConditionState) -> Result<(), AppError> {
     match cmd.cmd_type {
         CommandType::TurnOn => {
             ac.is_on = true;
@@ -579,10 +595,7 @@ fn apply_ac(cmd: &ParsedCommand, ac: &mut AirConditionState) -> Result<(), Contr
         CommandType::SetValue => {
             if let Some(v) = cmd.value {
                 if !(16..=30).contains(&v) {
-                    return Err(ControlError::InvalidValue {
-                        expected: "16-30".into(),
-                        got: v,
-                    });
+                    return Err(AppError::invalid_value("16-30", v));
                 }
                 ac.temperature = v;
             }
@@ -593,7 +606,7 @@ fn apply_ac(cmd: &ParsedCommand, ac: &mut AirConditionState) -> Result<(), Contr
 }
 
 /// 应用风扇指令
-fn apply_fan(cmd: &ParsedCommand, fan: &mut FanState) -> Result<(), ControlError> {
+fn apply_fan(cmd: &ParsedCommand, fan: &mut FanState) -> Result<(), AppError> {
     match cmd.cmd_type {
         CommandType::TurnOn => {
             fan.is_on = true;
@@ -604,10 +617,7 @@ fn apply_fan(cmd: &ParsedCommand, fan: &mut FanState) -> Result<(), ControlError
         CommandType::SetValue => {
             if let Some(v) = cmd.value {
                 if v > 3 {
-                    return Err(ControlError::InvalidValue {
-                        expected: "0-3".into(),
-                        got: v,
-                    });
+                    return Err(AppError::invalid_value("0-3", v));
                 }
                 fan.speed = v;
             }
@@ -618,7 +628,7 @@ fn apply_fan(cmd: &ParsedCommand, fan: &mut FanState) -> Result<(), ControlError
 }
 
 /// 应用窗帘指令
-fn apply_curtain(cmd: &ParsedCommand, curtain: &mut crate::state::CurtainState) -> Result<(), ControlError> {
+fn apply_curtain(cmd: &ParsedCommand, curtain: &mut crate::state::CurtainState) -> Result<(), AppError> {
     match cmd.cmd_type {
         CommandType::TurnOn | CommandType::SetValue => {
             // TurnOn 和 SetValue 都映射为 open
@@ -825,7 +835,7 @@ mod tests {
         };
         let result = execute_command(&cmd, &state);
         assert!(result.is_err(), "35度应该被拒绝");
-        if let Err(ControlError::InvalidValue { expected, got }) = result {
+        if let Err(AppError::InvalidValue { expected, got, .. }) = result {
             assert_eq!(expected, "16-30");
             assert_eq!(got, 35);
         } else {
@@ -972,10 +982,10 @@ mod tests {
     fn test_unrecognized_command() {
         let result = parse_command("这是乱七八糟的指令xyz");
         assert!(result.is_err());
-        if let Err(ControlError::Unrecognized(s)) = result {
-            assert!(s.contains("乱七八糟"));
+        if let Err(AppError::UnrecognizedCommand { input, .. }) = result {
+            assert!(input.contains("乱七八糟"));
         } else {
-            panic!("期望 Unrecognized 错误");
+            panic!("期望 UnrecognizedCommand 错误");
         }
     }
 
@@ -983,8 +993,8 @@ mod tests {
 
     #[test]
     fn test_parse_vlm_response_turn_on_light() {
-        // 新格式: {"command": {"device": "light", "action": "on", ...}, "raw_text": "..."}
-        let json = r#"{"command": {"device": "light", "action": "on"}, "raw_text": "打开灯"}"#;
+        // AppResult 包装格式: {"success": true, "data": {"command": {...}, "raw_text": "..."}}
+        let json = r#"{"success": true, "data": {"command": {"device": "light", "action": "on"}, "raw_text": "打开灯"}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_ok());
         let cmd = result.unwrap();
@@ -994,8 +1004,7 @@ mod tests {
 
     #[test]
     fn test_parse_vlm_response_set_ac_temperature() {
-        // 新格式带 target_value
-        let json = r#"{"command": {"device": "air_condition", "action": "set_level", "target_value": 25}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "air_condition", "action": "set_level", "target_value": 25}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_ok());
         let cmd = result.unwrap();
@@ -1006,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_parse_vlm_response_with_confidence() {
-        let json = r#"{"command": {"device": "fan", "action": "on", "confidence": 0.95}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "fan", "action": "on", "confidence": 0.95}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_ok());
         let cmd = result.unwrap();
@@ -1016,26 +1025,26 @@ mod tests {
 
     #[test]
     fn test_parse_vlm_response_low_confidence() {
-        let json = r#"{"command": {"device": "light", "action": "on", "confidence": 0.4}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "light", "action": "on", "confidence": 0.4}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), VoiceError::VlmLowConfidence(c) if c == 0.4));
+        assert!(matches!(result.unwrap_err(), AppError::VlmLowConfidence { confidence: c, .. } if c == 0.4));
     }
 
     #[test]
     fn test_parse_vlm_response_invalid_action() {
-        let json = r#"{"command": {"device": "light", "action": "invalid_action"}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "light", "action": "invalid_action"}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), VoiceError::VlmParseError(_)));
+        assert!(matches!(result.unwrap_err(), AppError::VlmParseError { .. }));
     }
 
     #[test]
     fn test_parse_vlm_response_invalid_device() {
-        let json = r#"{"command": {"device": "unknown_device", "action": "on"}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "unknown_device", "action": "on"}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), VoiceError::VlmParseError(_)));
+        assert!(matches!(result.unwrap_err(), AppError::VlmParseError { .. }));
     }
 
     #[test]
@@ -1043,27 +1052,52 @@ mod tests {
         let json = r#"not valid json"#;
         let result = parse_vlm_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), VoiceError::VlmParseError(_)));
+        assert!(matches!(result.unwrap_err(), AppError::VlmParseError { .. }));
     }
 
     #[test]
     fn test_parse_vlm_response_curtain_open() {
-        let json = r#"{"command": {"device": "curtain", "action": "open"}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "curtain", "action": "open"}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_ok());
         let cmd = result.unwrap();
         assert_eq!(cmd.device, TargetDevice::Curtain);
-        assert_eq!(cmd.action, CommandType::TurnOn); // open → TurnOn
+        assert_eq!(cmd.action, CommandType::TurnOn);
     }
 
     #[test]
     fn test_parse_vlm_response_curtain_close() {
-        let json = r#"{"command": {"device": "curtain", "action": "close"}}"#;
+        let json = r#"{"success": true, "data": {"command": {"device": "curtain", "action": "close"}}}"#;
         let result = parse_vlm_response(json);
         assert!(result.is_ok());
         let cmd = result.unwrap();
         assert_eq!(cmd.device, TargetDevice::Curtain);
-        assert_eq!(cmd.action, CommandType::TurnOff); // close → TurnOff
+        assert_eq!(cmd.action, CommandType::TurnOff);
+    }
+
+    #[test]
+    fn test_parse_vlm_response_daemon_error() {
+        // 模拟 Python daemon 返回 AppResult 错误
+        let json = r#"{"success": false, "error": {"code": "vlm_timeout", "message": "VLM API 调用超时 (12s)", "detail": "trace-001"}}"#;
+        let result = parse_vlm_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::VlmTimeout { .. }));
+    }
+
+    #[test]
+    fn test_parse_vlm_response_daemon_parse_error() {
+        let json = r#"{"success": false, "error": {"code": "vlm_parse_error", "message": "VLM 响应格式无效"}}"#;
+        let result = parse_vlm_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::VlmParseError { .. }));
+    }
+
+    #[test]
+    fn test_parse_vlm_response_daemon_internal_error() {
+        let json = r#"{"success": false, "error": {"code": "internal_error", "message": "未知异常"}}"#;
+        let result = parse_vlm_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AppError::InternalError { .. }));
     }
 
     // ===== 模糊匹配测试 (C3) =====
@@ -1123,17 +1157,17 @@ mod tests {
         }
     }
 
-    // ===== VoiceError Display 测试 (C4) =====
+    // ===== AppError Display 测试 =====
 
     #[test]
-    fn test_voice_error_display() {
-        let err = VoiceError::VlmTimeout;
+    fn test_app_error_display() {
+        let err = AppError::vlm_timeout();
         assert!(err.to_string().contains("VLM 请求超时"));
 
-        let err = VoiceError::VlmLowConfidence(0.5);
+        let err = AppError::vlm_low_confidence(0.5);
         assert!(err.to_string().contains("0.50"));
 
-        let err = VoiceError::UnknownCommand;
-        assert!(err.to_string().contains("无法识别指令"));
+        let err = AppError::unrecognized("测试指令");
+        assert!(err.to_string().contains("无法识别的指令"));
     }
 }

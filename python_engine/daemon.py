@@ -15,9 +15,13 @@ import sys
 import logging
 import time
 import threading
+import traceback
+import numpy as np
+import cv2
 from flask import Flask, request, jsonify
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional, List
+from errors import ErrorCode, AppError, AppException, AppResult
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +46,14 @@ try:
 except ImportError as e:
     logger.warning(f"ai_engine not available: {e}")
     AI_ENGINE_AVAILABLE = False
+
+# Import gesture recognition
+try:
+    import gesture
+    GESTURE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"gesture module not available: {e}")
+    GESTURE_AVAILABLE = False
 
 
 # Pydantic models for request/response validation
@@ -76,19 +88,6 @@ class VLMResponse(BaseModel):
     raw_text: str = Field(description="Original command text")
 
 
-class ErrorResponse(BaseModel):
-    """Error response"""
-    error: str = Field(description="Error type")
-    command: None = Field(default=None)
-    message: str = Field(description="Error message")
-    trace_id: Optional[str] = Field(default=None, description="追踪 ID")
-
-
-def make_error_response(error_type: str, message: str, trace_id: Optional[str] = None) -> dict:
-    """Create standardized error response"""
-    return ErrorResponse(error=error_type, command=None, message=message, trace_id=trace_id).model_dump()
-
-
 def get_timestamp() -> str:
     """获取当前时间戳 HH:MM:SS.mmm"""
     t = time.time()
@@ -108,6 +107,12 @@ def create_log(level: str, message: str, trace_id: Optional[str] = None, source:
         trace_id=trace_id,
         source=source
     ).model_dump()
+
+
+@app.errorhandler(AppException)
+def handle_app_exception(e: AppException):
+    """将 AppException 转为标准 AppResult JSON 响应"""
+    return jsonify(AppResult(success=False, error=e.error).model_dump()), 500
 
 
 @app.route("/health", methods=["GET"])
@@ -139,8 +144,8 @@ def vlm_endpoint():
         {"audio": "data:audio/pcm;base64,...", "prompt": "请提取设备控制指令", "trace_id": "abc123"}
 
     Response:
-        Success: {"command": {"device": "...", "action": "...", ...}, "raw_text": "...", "logs": [...]}
-        Error: {"error": "error_type", "command": null, "message": "...", "trace_id": "..."}
+        Success: {"success": true, "data": {"command": {...}, "raw_text": "...", "logs": [...]}}
+        Error:   {"success": false, "error": {"code": "...", "message": "...", "detail": "..."}}
     """
     logs = []  # 收集本次请求的日志
 
@@ -148,7 +153,7 @@ def vlm_endpoint():
     try:
         data = VLMRequest(**request.get_json())
     except ValidationError as e:
-        return jsonify(make_error_response("validation_error", str(e))), 400
+        return jsonify(AppResult.fail(ErrorCode.INVALID_VALUE, str(e)).model_dump()), 400
 
     trace_id = data.trace_id
     logs.append(create_log("INFO", f"[VLM] 请求收到 trace_id={trace_id}", trace_id))
@@ -156,46 +161,86 @@ def vlm_endpoint():
     # Check for empty audio
     if not data.audio or data.audio.strip() == "":
         logs.append(create_log("ERROR", "音频数据为空", trace_id))
-        return jsonify(make_error_response("empty_audio", "音频数据为空", trace_id)), 400
+        return jsonify(AppResult.fail(ErrorCode.INVALID_VALUE, "音频数据为空", detail=trace_id).model_dump()), 400
 
     # Check for empty prompt
     if not data.prompt or data.prompt.strip() == "":
         logs.append(create_log("ERROR", "prompt 为空", trace_id))
-        return jsonify(make_error_response("invalid_request", "无效请求: prompt为空", trace_id)), 400
+        return jsonify(AppResult.fail(ErrorCode.INVALID_VALUE, "无效请求: prompt为空", detail=trace_id).model_dump()), 400
 
     # Check if AI engine is available
     if not AI_ENGINE_AVAILABLE:
         logs.append(create_log("ERROR", "AI 引擎不可用", trace_id))
-        return jsonify(make_error_response("engine_unavailable", "AI 引擎不可用", trace_id)), 503
+        return jsonify(AppResult.fail(ErrorCode.DAEMON_ERROR, "AI 引擎不可用", detail=trace_id).model_dump()), 503
 
-    # Call VLM
+    # Call VLM — 返回 AppResult 或 raise AppException（由 @app.errorhandler 捕获）
     try:
         logs.append(create_log("INFO", f"[VLM] 开始调用 AI 引擎 (sample_rate={data.sample_rate}Hz)", trace_id))
         result = call_vlm(data.audio, data.prompt, data.sample_rate)
 
-        logs.append(create_log("INFO", f"[VLM] 调用完成 success={result.get('success', False)}", trace_id))
+        logs.append(create_log("INFO", f"[VLM] 调用完成 success={result.success}", trace_id))
 
-        # Check if VLM call was successful
-        if not result.get("success", False):
-            error_msg = result.get("message", "VLM 调用失败")
-            logs.append(create_log("ERROR", f"[VLM] 调用失败: {error_msg}", trace_id))
-            return jsonify(make_error_response(
-                result.get("error", "unknown"),
-                error_msg,
-                trace_id
-            )), 500
+        # result 是 AppResult — 直接使用其字段
+        if not result.success:
+            logs.append(create_log("ERROR", f"[VLM] 调用失败: {result.error.message if result.error else '未知'}", trace_id))
+            return jsonify(result.model_dump()), 500
 
-        # 返回成功响应（带日志）
-        response = {
-            "command": result.get("command"),
-            "raw_text": result.get("raw_text", ""),
-            "logs": logs  # 回传日志到 Rust
-        }
-        return jsonify(response)
+        # 注入日志到成功响应
+        data_with_logs = dict(result.data or {})
+        data_with_logs["logs"] = logs
+        return jsonify(AppResult.ok(data=data_with_logs).model_dump())
 
+    except AppException:
+        raise  # 由 @app.errorhandler(AppException) 处理
     except Exception as e:
-        logs.append(create_log("ERROR", f"VLM call failed: {e}", trace_id))
-        return jsonify(make_error_response("vlm_error", f"VLM 调用失败: {str(e)}", trace_id)), 500
+        logs.append(create_log("ERROR", f"[VLM] 未预期异常: {e}", trace_id))
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        raise AppException(AppError(code=ErrorCode.INTERNAL_ERROR, message=str(e), detail=f"{trace_id}\n{tb}")) from e
+
+
+@app.route("/gesture", methods=["POST"])
+def gesture_endpoint():
+    """
+    手势识别端点
+
+    Request:
+        POST /gesture
+        Content-Type: image/jpeg
+        Body: raw JPEG bytes
+
+    Response:
+        Success: {"count": 0..5, "confidence": 0.85, "landmarks": [...]}
+        No hand: {"count": null, "confidence": 0.0, "landmarks": []}
+        Error:   {"success": false, "error": {"code": "...", "message": "...", "detail": "..."}}
+    """
+    if not GESTURE_AVAILABLE:
+        return jsonify(AppResult.fail(ErrorCode.GESTURE_ERROR, "手势识别模块不可用").model_dump()), 503
+
+    try:
+        # 读取 raw JPEG bytes
+        img_bytes = request.get_data()
+        if not img_bytes:
+            return jsonify(AppResult.fail(ErrorCode.INVALID_VALUE, "图像数据为空").model_dump()), 400
+
+        # 解码 JPEG
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return jsonify(AppResult.fail(ErrorCode.INVALID_VALUE, "图像解码失败，请确保数据为有效 JPEG").model_dump()), 400
+
+        # 调用手势识别
+        # 注意: 手势端点直接返回裸 dict，不做 AppResult 包装
+        # Rust GestureClient 使用 response.json::<GestureResult>() 直接反序列化
+        result = gesture.recognize_gesture(frame)
+        return jsonify(result)
+
+    except AppException:
+        raise
+    except Exception as e:
+        logger.error(f"Gesture recognition error: {e}")
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        raise AppException(AppError(code=ErrorCode.GESTURE_ERROR, message=str(e), detail=tb)) from e
 
 
 def main():

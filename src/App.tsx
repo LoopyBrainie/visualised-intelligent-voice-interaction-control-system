@@ -1,61 +1,67 @@
-import { Component, Show } from 'solid-js';
+import { Component, createEffect, createSignal } from 'solid-js';
 import { VisualizationPanel } from './components/VisualizationPanel';
 import { SpectrumPanel } from './components/SpectrumPanel';
-import { LogPanel } from './components/LogPanel';
 import { ControlBar } from './components/ControlBar';
 import { useResponsiveLayout } from './hooks/useResponsiveLayout';
-import { SnapshotProvider } from './components/ui/SnapshotContext';
 
 const App: Component = () => {
-  const isPortrait = useResponsiveLayout();
+  const [currentMode, setCurrentMode] = createSignal<'voice' | 'gesture'>('voice');
+  const [viewMode, setViewMode] = createSignal<'devices' | 'diagnostics'>('devices');
+
+  const layout = useResponsiveLayout();
+
+  // At very short windows (h0, < 600px tall) the gesture-mode 360px camera
+  // strip crowds the main content. Force-collapse to voice so the user
+  // keeps a usable surface; they can switch back manually if they resize up.
+  createEffect(() => {
+    if (layout.heightTier === 'h0' && currentMode() === 'gesture') {
+      setCurrentMode('voice');
+    }
+  });
 
   return (
-    <SnapshotProvider>
-    <div class="min-h-screen bg-primary text-primary font-sf-pro flex flex-col">
-      {/* 顶部标题栏 — Apple 深色半透明导航玻璃 */}
-      <header class="h-12 flex items-center justify-center shrink-0 z-nav glass-nav">
-        <h1 class="text-micro text-white tracking-tight">
-          可视化智能语音交互控制系统
+    <div class={`h-screen flex flex-col overflow-hidden bg-primary text-primary ${currentMode() === 'gesture' ? 'gesture-mode' : ''}`}>
+      {/* Header — 36px, Parchment, minimal */}
+      <header
+        class="shrink-0 flex items-center justify-center border-b border-hairline z-nav"
+        style={{ height: 'var(--header-height)' }}
+      >
+        <h1 class="text-fine text-secondary tracking-wide uppercase">
+          SPARV
         </h1>
       </header>
 
-      {/* 主内容区 — 响应式布局 + 底部留空 */}
-      <main class={`flex-1 min-h-0 flex ${isPortrait() ? 'flex-col' : 'flex-row'} gap-4 p-4 pb-24`}>
-        {/* 左侧/顶部：可视化仿真区 */}
-        <section class="flex flex-col gap-4 min-w-0 flex-1">
-          <div class="flex-1 min-h-0 apple-card rounded-lg p-4 z-map">
-            <VisualizationPanel />
-          </div>
-        </section>
+      {/* Media Strip — 140px, fixed, ambient morphing */}
+      <div
+        class="shrink-0 bg-secondary z-media flex items-center justify-center"
+        style={{ height: 'var(--media-strip-height)' }}
+      >
+        <SpectrumPanel mode={currentMode()} />
+      </div>
 
-        {/* 右侧/底部：频谱区 + 日志区 */}
-        <Show when={!isPortrait()}>
-          <aside class="w-80 h-[calc(100vh-8rem)] overflow-hidden flex flex-col gap-4 shrink-0 z-panel">
-            <div class="h-[30%] min-h-[100px] apple-card rounded-lg p-4 shrink-0">
-              <SpectrumPanel />
-            </div>
-            <div class="flex-1 min-h-0 apple-card rounded-lg overflow-hidden">
-              <LogPanel />
-            </div>
-          </aside>
-        </Show>
-
-        <Show when={isPortrait()}>
-          <aside class="w-full flex flex-col gap-4 shrink-0 z-panel">
-            <div class="h-[100px] min-h-[80px] apple-card rounded-lg p-4 shrink-0">
-              <SpectrumPanel />
-            </div>
-            <div class="flex-1 min-h-0 apple-card rounded-lg overflow-hidden">
-              <LogPanel />
-            </div>
-          </aside>
-        </Show>
+      {/* Main — stacked rooms, scrollable. Top padding is generous to
+          separate the room grid from the Canvas media strip; the
+          Parchment-to-Canvas-to-Parchment tone shift does the rest. */}
+      <main
+        class="flex-1 min-h-0 overflow-y-auto"
+        style={{
+          'padding-top': 'var(--content-padding-y)',
+          'padding-left': 'var(--content-padding-x)',
+          'padding-right': 'var(--content-padding-x)',
+          'padding-bottom': 'calc(var(--control-bar-height) + var(--content-padding-y))',
+        }}
+      >
+        <VisualizationPanel />
       </main>
 
-      {/* 底部：Apple 风格控制栏 */}
-      <ControlBar isPortrait={isPortrait()} />
+      {/* ControlBar — 72px, LiquidGlass floating */}
+      <ControlBar
+        mode={currentMode()}
+        viewMode={viewMode()}
+        onModeChange={setCurrentMode}
+        onViewChange={setViewMode}
+      />
     </div>
-    </SnapshotProvider>
   );
 };
 

@@ -71,6 +71,7 @@ fn emit_log(level: &str, message: &str, trace_id: Option<&str>, source: Option<&
     }
     if let Ok(guard) = APP_HANDLE.lock() {
         if let Some(app) = guard.as_ref() {
+            // intentionally ignored: one-way UI notification, no recovery path
             let _ = app.emit("log_event", entry);
         }
     }
@@ -155,6 +156,7 @@ pub fn log_debug_ts(msg: &str, trace_id: &str, source: &str) {
 pub fn log_proxy(log_entry: &LogEntry) {
     if let Ok(guard) = APP_HANDLE.lock() {
         if let Some(app) = guard.as_ref() {
+            // intentionally ignored: one-way UI notification, no recovery path
             let _ = app.emit("log_event", log_entry.clone());
         }
     }
